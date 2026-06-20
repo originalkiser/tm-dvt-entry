@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer } from 'react'
-import { LOCATIONS } from '../config/locations'
-import { COLUMNS } from '../config/columns'
-import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus } from '../lib/supabase'
+import { COLUMNS, ColumnSection } from '../config/columns'
+import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation } from '../lib/supabase'
 import { today, subtractDays } from '../lib/dateUtils'
 import { getColumnOrder, saveColumnOrder } from '../hooks/useColumnOrder'
 import { ParseResult } from '../lib/parseEngine'
@@ -10,10 +9,11 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 interface AppState {
   activeLocationId: string
+  activeSection: ColumnSection
   dateRange: { start: string; end: string }
   theme: 'light' | 'dark'
   entries: Record<string, Record<string, DailyEntry>>
-  columnOrders: Record<string, string[]>
+  columnOrders: Record<string, Record<ColumnSection, string[]>>
   pendingChanges: Set<string>
   parseResults: ParseResult[]
   locationsWithDataToday: Set<string>
@@ -21,16 +21,18 @@ interface AppState {
   isLoadingEntries: boolean
   uploadPanelOpen: boolean
   exportModalOpen: boolean
+  locations: DVTLocation[]
+  viewRefreshTrigger: number
 }
 
 type Action =
   | { type: 'SET_LOCATION'; locationId: string }
+  | { type: 'SET_SECTION'; section: ColumnSection }
   | { type: 'SET_DATE_RANGE'; start: string; end: string }
   | { type: 'SET_THEME'; theme: 'light' | 'dark' }
   | { type: 'SET_ENTRIES'; locationId: string; entries: DailyEntry[] }
   | { type: 'SET_CELL'; locationId: string; date: string; key: string; value: unknown; confidence: 'certain' | 'uncertain' | 'manual' }
-  | { type: 'SET_COLUMN_ORDER'; locationId: string; order: string[] }
-  | { type: 'ADD_PENDING'; key: string }
+  | { type: 'SET_COLUMN_ORDER'; locationId: string; section: ColumnSection; order: string[] }
   | { type: 'REMOVE_PENDING'; key: string }
   | { type: 'SET_PARSE_RESULTS'; results: ParseResult[] }
   | { type: 'APPLY_PARSE_RESULT'; locationId: string; date: string; result: ParseResult }
@@ -40,13 +42,14 @@ type Action =
   | { type: 'TOGGLE_UPLOAD_PANEL' }
   | { type: 'TOGGLE_EXPORT_MODAL' }
   | { type: 'CLOSE_EXPORT_MODAL' }
+  | { type: 'SET_LOCATIONS'; locations: DVTLocation[] }
+  | { type: 'BUMP_VIEW_REFRESH' }
 
-function getInitialColumnOrders(): Record<string, string[]> {
-  const orders: Record<string, string[]> = {}
-  for (const loc of LOCATIONS) {
-    orders[loc.id] = getColumnOrder(loc.id)
+function getInitialColumnOrders(locationId: string): Record<ColumnSection, string[]> {
+  return {
+    md:  getColumnOrder(locationId, 'md'),
+    eod: getColumnOrder(locationId, 'eod'),
   }
-  return orders
 }
 
 function getInitialTheme(): 'light' | 'dark' {
@@ -56,18 +59,16 @@ function getInitialTheme(): 'light' | 'dark' {
 }
 
 function makeEmptyEntry(locationId: string, date: string): DailyEntry {
-  return {
-    location_id: locationId,
-    entry_date: date,
-    data: {},
-    confidence: {},
-  }
+  return { location_id: locationId, entry_date: date, data: {}, confidence: {} }
 }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_LOCATION':
       return { ...state, activeLocationId: action.locationId }
+
+    case 'SET_SECTION':
+      return { ...state, activeSection: action.section }
 
     case 'SET_DATE_RANGE':
       return { ...state, dateRange: { start: action.start, end: action.end } }
@@ -77,16 +78,8 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_ENTRIES': {
       const byDate: Record<string, DailyEntry> = {}
-      for (const entry of action.entries) {
-        byDate[entry.entry_date] = entry
-      }
-      return {
-        ...state,
-        entries: {
-          ...state.entries,
-          [action.locationId]: byDate,
-        },
-      }
+      for (const entry of action.entries) byDate[entry.entry_date] = entry
+      return { ...state, entries: { ...state.entries, [action.locationId]: byDate } }
     }
 
     case 'SET_CELL': {
@@ -101,28 +94,14 @@ function reducer(state: AppState, action: Action): AppState {
       const pendingKey = `${locationId}:${date}`
       const newPending = new Set(state.pendingChanges)
       newPending.add(pendingKey)
-      return {
-        ...state,
-        entries: {
-          ...state.entries,
-          [locationId]: { ...locEntries, [date]: updated },
-        },
-        pendingChanges: newPending,
-      }
+      return { ...state, entries: { ...state.entries, [locationId]: { ...locEntries, [date]: updated } }, pendingChanges: newPending }
     }
 
     case 'SET_COLUMN_ORDER': {
-      saveColumnOrder(action.locationId, action.order)
-      return {
-        ...state,
-        columnOrders: { ...state.columnOrders, [action.locationId]: action.order },
-      }
-    }
-
-    case 'ADD_PENDING': {
-      const s = new Set(state.pendingChanges)
-      s.add(action.key)
-      return { ...state, pendingChanges: s }
+      const { locationId, section, order } = action
+      saveColumnOrder(locationId, section, order)
+      const existing = state.columnOrders[locationId] ?? getInitialColumnOrders(locationId)
+      return { ...state, columnOrders: { ...state.columnOrders, [locationId]: { ...existing, [section]: order } } }
     }
 
     case 'REMOVE_PENDING': {
@@ -139,23 +118,16 @@ function reducer(state: AppState, action: Action): AppState {
       const locEntries = state.entries[locationId] ?? {}
       const existing = locEntries[date] ?? makeEmptyEntry(locationId, date)
       const newData = { ...existing.data }
-      const newConfidence = { ...existing.confidence }
+      const newConf = { ...existing.confidence }
       for (const [key, field] of Object.entries(result.fields)) {
         newData[key] = field.value
-        newConfidence[key] = field.confidence
+        newConf[key] = field.confidence
       }
-      const updated: DailyEntry = { ...existing, data: newData, confidence: newConfidence }
+      const updated: DailyEntry = { ...existing, data: newData, confidence: newConf }
       const pendingKey = `${locationId}:${date}`
       const newPending = new Set(state.pendingChanges)
       newPending.add(pendingKey)
-      return {
-        ...state,
-        entries: {
-          ...state.entries,
-          [locationId]: { ...locEntries, [date]: updated },
-        },
-        pendingChanges: newPending,
-      }
+      return { ...state, entries: { ...state.entries, [locationId]: { ...locEntries, [date]: updated } }, pendingChanges: newPending }
     }
 
     case 'SET_TODAY_STATUS':
@@ -176,6 +148,12 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_EXPORT_MODAL':
       return { ...state, exportModalOpen: false }
 
+    case 'SET_LOCATIONS':
+      return { ...state, locations: action.locations }
+
+    case 'BUMP_VIEW_REFRESH':
+      return { ...state, viewRefreshTrigger: state.viewRefreshTrigger + 1 }
+
     default:
       return state
   }
@@ -190,13 +168,16 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null)
 
+const FIRST_LOCATION_ID = 'LOC001'
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer<Reducer<AppState, Action>>(reducer, {
-    activeLocationId: LOCATIONS[0].id,
+    activeLocationId: FIRST_LOCATION_ID,
+    activeSection: 'eod',
     dateRange: { start: subtractDays(4), end: today() },
     theme: getInitialTheme(),
     entries: {},
-    columnOrders: getInitialColumnOrders(),
+    columnOrders: {},
     pendingChanges: new Set(),
     parseResults: [],
     locationsWithDataToday: new Set(),
@@ -204,29 +185,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isLoadingEntries: false,
     uploadPanelOpen: false,
     exportModalOpen: false,
+    locations: [],
+    viewRefreshTrigger: 0,
   })
 
-  // Apply theme to document
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', state.theme)
     localStorage.setItem('dvt_theme', state.theme)
   }, [state.theme])
 
-  // Load today's status for sidebar dots
+  // Load locations from Supabase (only active ones shown in sidebar)
   useEffect(() => {
-    fetchTodayStatus(LOCATIONS.map((l) => l.id))
-      .then((ids) => dispatch({ type: 'SET_TODAY_STATUS', locationIds: ids }))
+    fetchLocations()
+      .then(locs => {
+        dispatch({ type: 'SET_LOCATIONS', locations: locs })
+        const firstActive = locs.find(l => l.is_active)
+        if (firstActive) dispatch({ type: 'SET_LOCATION', locationId: firstActive.location_id })
+      })
       .catch(console.error)
   }, [])
+
+  useEffect(() => {
+    const activeIds = state.locations.filter(l => l.is_active).map(l => l.location_id)
+    if (activeIds.length === 0) return
+    fetchTodayStatus(activeIds)
+      .then(ids => dispatch({ type: 'SET_TODAY_STATUS', locationIds: ids }))
+      .catch(console.error)
+  }, [state.locations])
 
   const loadEntries = useCallback(async (locationId: string) => {
     dispatch({ type: 'SET_LOADING_ENTRIES', loading: true })
     try {
-      const entries = await fetchEntries(
-        locationId,
-        state.dateRange.start,
-        state.dateRange.end
-      )
+      const entries = await fetchEntries(locationId, state.dateRange.start, state.dateRange.end)
       dispatch({ type: 'SET_ENTRIES', locationId, entries })
     } catch (err) {
       console.error('loadEntries error:', err)
@@ -238,7 +228,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const savePendingEntry = useCallback(async (locationId: string, date: string) => {
     const entry = state.entries[locationId]?.[date]
     if (!entry) return
-
     dispatch({ type: 'SET_SAVE_STATUS', status: 'saving' })
     try {
       await upsertEntry(locationId, date, entry.data, entry.confidence)
@@ -251,7 +240,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.entries])
 
-  // Load entries when location or date range changes
   useEffect(() => {
     loadEntries(state.activeLocationId)
   }, [state.activeLocationId, state.dateRange.start, state.dateRange.end])
@@ -269,6 +257,5 @@ export function useAppContext(): AppContextValue {
   return ctx
 }
 
-export type { AppState, Action }
-// Re-export COLUMNS for convenience
 export { COLUMNS }
+export type { AppState, Action }

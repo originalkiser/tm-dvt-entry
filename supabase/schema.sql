@@ -1,18 +1,22 @@
--- DVT-Entry Schema
+-- DVT-Entry Schema (v2)
 -- Runs on the same Supabase project as tm-opsperformance.
--- Tables are prefixed with "dvt_" to avoid conflicts.
--- Run in Supabase SQL Editor after the ops-performance schema is already in place.
+-- All tables prefixed "dvt_" to avoid conflicts.
+-- Run in Supabase SQL Editor.
 
--- Location lookup (DVT-specific — ops-performance has its own "locations" table)
+-- Location lookup
 create table if not exists dvt_locations (
   id uuid primary key default gen_random_uuid(),
-  location_id text unique not null,  -- e.g. "1508-Mesquite-Town"
+  location_id text unique not null,
   name text not null,
   sheet_name text not null,
+  is_active boolean not null default true,
   created_at timestamptz default now()
 );
 
--- Daily entry rows (one per location per date)
+-- If upgrading from v1, add is_active column:
+-- alter table dvt_locations add column if not exists is_active boolean not null default true;
+
+-- Daily entry rows
 create table if not exists dvt_daily_entries (
   id uuid primary key default gen_random_uuid(),
   location_id text not null references dvt_locations(location_id),
@@ -24,7 +28,19 @@ create table if not exists dvt_daily_entries (
   unique(location_id, entry_date)
 );
 
--- Column order + visibility config per location
+-- Named column-order templates (Save View As)
+create table if not exists dvt_column_views (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text,
+  section text not null default 'eod',   -- 'md' | 'eod'
+  column_keys text[] not null,            -- ordered array of column keys
+  is_global boolean not null default false,
+  created_by uuid references auth.users(id),
+  created_at timestamptz default now()
+);
+
+-- Column order/visibility config per location (localStorage fallback lives here too)
 create table if not exists dvt_column_configs (
   id uuid primary key default gen_random_uuid(),
   location_id text not null,
@@ -40,7 +56,7 @@ create table if not exists dvt_column_configs (
 create index if not exists dvt_entries_location_date
   on dvt_daily_entries(location_id, entry_date desc);
 
--- Auto-update updated_at (reuse function if ops-performance already created it)
+-- Auto-update updated_at
 create or replace function update_updated_at()
 returns trigger language plpgsql as $$
 begin
@@ -55,15 +71,50 @@ create trigger dvt_entries_updated_at
   for each row execute function update_updated_at();
 
 -- Row Level Security
-alter table dvt_locations enable row level security;
+alter table dvt_locations     enable row level security;
 alter table dvt_daily_entries enable row level security;
 alter table dvt_column_configs enable row level security;
+alter table dvt_column_views   enable row level security;
 
--- Allow anon read/write (no auth for DVT-Entry V1)
-drop policy if exists "dvt_anon_locations"     on dvt_locations;
-drop policy if exists "dvt_anon_entries"        on dvt_daily_entries;
-drop policy if exists "dvt_anon_column_configs" on dvt_column_configs;
+-- Anon: read locations + entries (data entry doesn't require login in the UI flow
+-- but Supabase Auth tokens are sent once logged in — authenticated role used for writes)
+drop policy if exists "dvt_anon_locations_read"  on dvt_locations;
+drop policy if exists "dvt_auth_entries_all"      on dvt_daily_entries;
+drop policy if exists "dvt_auth_configs_all"      on dvt_column_configs;
+drop policy if exists "dvt_auth_views_select"     on dvt_column_views;
+drop policy if exists "dvt_auth_views_insert"     on dvt_column_views;
+drop policy if exists "dvt_auth_views_update"     on dvt_column_views;
+drop policy if exists "dvt_auth_views_delete"     on dvt_column_views;
+drop policy if exists "dvt_admin_locations_write" on dvt_locations;
 
-create policy "dvt_anon_locations"     on dvt_locations     for all to anon using (true) with check (true);
-create policy "dvt_anon_entries"       on dvt_daily_entries for all to anon using (true) with check (true);
-create policy "dvt_anon_column_configs" on dvt_column_configs for all to anon using (true) with check (true);
+-- Locations: authenticated can read; admin can write
+create policy "dvt_auth_locations_read"  on dvt_locations for select to authenticated using (true);
+create policy "dvt_admin_locations_write" on dvt_locations
+  for all to authenticated
+  using    (exists (select 1 from user_profiles where id = auth.uid() and role = 'admin'))
+  with check (exists (select 1 from user_profiles where id = auth.uid() and role = 'admin'));
+
+-- Entries: all authenticated users can read/write
+create policy "dvt_auth_entries_all" on dvt_daily_entries
+  for all to authenticated using (true) with check (true);
+
+-- Column configs: all authenticated users can read/write
+create policy "dvt_auth_configs_all" on dvt_column_configs
+  for all to authenticated using (true) with check (true);
+
+-- Column views: read own + global; write own; admin can set global
+create policy "dvt_auth_views_select" on dvt_column_views
+  for select to authenticated
+  using (is_global = true or created_by = auth.uid());
+
+create policy "dvt_auth_views_insert" on dvt_column_views
+  for insert to authenticated
+  with check (created_by = auth.uid());
+
+create policy "dvt_auth_views_update" on dvt_column_views
+  for update to authenticated
+  using (created_by = auth.uid());
+
+create policy "dvt_auth_views_delete" on dvt_column_views
+  for delete to authenticated
+  using (created_by = auth.uid());
