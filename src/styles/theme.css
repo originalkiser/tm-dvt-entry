@@ -1,0 +1,69 @@
+/* Strickland Brothers Brand — CSS Custom Properties */
+
+:root[data-theme="light"] {
+  --sb-navy: #002745;
+  --sb-inky: #4F7489;
+  --sb-sky: #B7E0DE;
+  --sb-onyx: #1A1A1A;
+  --sb-cream: #F5F0E8;
+  --sb-white: #FFFFFF;
+
+  --color-sidebar-bg: #002745;
+  --color-sidebar-text: #B7E0DE;
+  --color-sidebar-text-muted: #7BAFC0;
+  --color-content-bg: #F5F0E8;
+  --color-card-bg: #FFFFFF;
+  --color-topbar-bg: #002745;
+  --color-topbar-text: #FFFFFF;
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #4F7489;
+  --color-border: #D5CEBF;
+  --color-input-bg: #FFFFFF;
+  --color-input-border: #D5CEBF;
+  --color-row-hover: #EDE8DF;
+  --color-totals-bg: #EDE8DF;
+
+  --conf-certain: #2D7D46;
+  --conf-certain-bg: #2D7D4615;
+  --conf-uncertain: #C97B2A;
+  --conf-uncertain-bg: #C97B2A15;
+  --conf-unset: inherit;
+
+  --pending-dot: #F59E0B;
+  --color-danger: #DC2626;
+  --color-success: #16A34A;
+}
+
+:root[data-theme="dark"] {
+  --sb-navy: #002745;
+  --sb-inky: #4F7489;
+  --sb-sky: #B7E0DE;
+  --sb-onyx: #1A1A1A;
+  --sb-cream: #F5F0E8;
+  --sb-white: #FFFFFF;
+
+  --color-sidebar-bg: #002745;
+  --color-sidebar-text: #B7E0DE;
+  --color-sidebar-text-muted: #7BAFC0;
+  --color-content-bg: #1A1A1A;
+  --color-card-bg: #222B35;
+  --color-topbar-bg: #001830;
+  --color-topbar-text: #FFFFFF;
+  --color-text-primary: #E8E4DC;
+  --color-text-secondary: #7BAFC0;
+  --color-border: #2E3A45;
+  --color-input-bg: #1E2830;
+  --color-input-border: #2E3A45;
+  --color-row-hover: #1E2830;
+  --color-totals-bg: #1A2530;
+
+  --conf-certain: #4ADE80;
+  --conf-certain-bg: #4ADE8015;
+  --conf-uncertain: #FB923C;
+  --conf-uncertain-bg: #FB923C15;
+  --conf-unset: inherit;
+
+  --pending-dot: #FBBF24;
+  --color-danger: #F87171;
+  --color-success: #4ADE80;
+}

@@ -1,0 +1,82 @@
+@import './styles/theme.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-content-bg);
+  color: var(--color-text-primary);
+  font-family: 'Inter', sans-serif;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Typography classes */
+.font-display {
+  font-family: 'Chakra Petch', sans-serif;
+}
+
+.font-mono-data {
+  font-family: 'DM Mono', monospace;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-inky);
+}
+
+/* Grid cell confidence states */
+.cell-certain {
+  border-left: 3px solid var(--conf-certain) !important;
+  background-color: var(--conf-certain-bg) !important;
+}
+
+.cell-uncertain {
+  border-left: 3px solid var(--conf-uncertain) !important;
+  background-color: var(--conf-uncertain-bg) !important;
+}
+
+/* Pending change dot */
+.pending-dot::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  background: var(--pending-dot);
+  border-radius: 50%;
+}
+
+/* Drag handle */
+.drag-handle {
+  cursor: grab;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.drag-handle:hover {
+  opacity: 1;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
