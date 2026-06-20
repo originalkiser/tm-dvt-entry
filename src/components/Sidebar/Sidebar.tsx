@@ -2,7 +2,7 @@ import React from 'react'
 import { LOCATIONS } from '../../config/locations'
 import { useAppContext } from '../../context/AppContext'
 import { LocationItem } from './LocationItem'
-import sbLogoUrl from '../../assets/sb-logo.svg'
+import sbLogoUrl from '../../assets/sb-trademark-logo.svg'
 
 export function Sidebar() {
   const { state, dispatch } = useAppContext()

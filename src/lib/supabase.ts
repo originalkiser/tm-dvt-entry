@@ -21,7 +21,7 @@ export async function fetchEntries(
   endDate: string
 ): Promise<DailyEntry[]> {
   const { data, error } = await supabase
-    .from('daily_entries')
+    .from('dvt_daily_entries')
     .select('*')
     .eq('location_id', locationId)
     .gte('entry_date', startDate)
@@ -39,7 +39,7 @@ export async function upsertEntry(
   confidence: Record<string, string>
 ): Promise<void> {
   const { error } = await supabase
-    .from('daily_entries')
+    .from('dvt_daily_entries')
     .upsert(
       {
         location_id: locationId,
@@ -57,7 +57,7 @@ export async function upsertEntry(
 export async function fetchTodayStatus(locationIds: string[]): Promise<Set<string>> {
   const today = new Date().toISOString().split('T')[0]
   const { data, error } = await supabase
-    .from('daily_entries')
+    .from('dvt_daily_entries')
     .select('location_id')
     .in('location_id', locationIds)
     .eq('entry_date', today)
@@ -75,7 +75,7 @@ export async function purgeOldEntries(): Promise<void> {
   const cutoffStr = cutoff.toISOString().split('T')[0]
 
   const { error } = await supabase
-    .from('daily_entries')
+    .from('dvt_daily_entries')
     .delete()
     .lt('entry_date', cutoffStr)
 
