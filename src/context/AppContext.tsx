@@ -1,11 +1,36 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer } from 'react'
 import { COLUMNS, ColumnSection } from '../config/columns'
+import { LOCATIONS } from '../config/locations'
 import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation } from '../lib/supabase'
 import { today, subtractDays } from '../lib/dateUtils'
 import { getColumnOrder, saveColumnOrder } from '../hooks/useColumnOrder'
 import { ParseResult } from '../lib/parseEngine'
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+// Locations hidden by this user (sidebar preference, not a global deactivation)
+function loadHiddenLocations(): Set<string> {
+  try {
+    const raw = localStorage.getItem('dvt_hidden_locations')
+    if (raw) return new Set(JSON.parse(raw) as string[])
+  } catch { /* ignore */ }
+  return new Set()
+}
+
+function saveHiddenLocations(ids: Set<string>) {
+  localStorage.setItem('dvt_hidden_locations', JSON.stringify([...ids]))
+}
+
+// Build a DVTLocation list from the static config as a fallback
+function staticLocations(): DVTLocation[] {
+  return LOCATIONS.map(l => ({
+    id: l.id,
+    location_id: l.id,
+    name: l.name,
+    sheet_name: l.sheetName,
+    is_active: true,
+  }))
+}
 
 interface AppState {
   activeLocationId: string
@@ -19,9 +44,12 @@ interface AppState {
   locationsWithDataToday: Set<string>
   saveStatus: SaveStatus
   isLoadingEntries: boolean
+  isLoadingLocations: boolean
   uploadPanelOpen: boolean
   exportModalOpen: boolean
+  settingsPanelOpen: boolean
   locations: DVTLocation[]
+  hiddenLocationIds: Set<string>
   viewRefreshTrigger: number
 }
 
@@ -39,10 +67,13 @@ type Action =
   | { type: 'SET_TODAY_STATUS'; locationIds: Set<string> }
   | { type: 'SET_SAVE_STATUS'; status: SaveStatus }
   | { type: 'SET_LOADING_ENTRIES'; loading: boolean }
+  | { type: 'SET_LOADING_LOCATIONS'; loading: boolean }
   | { type: 'TOGGLE_UPLOAD_PANEL' }
   | { type: 'TOGGLE_EXPORT_MODAL' }
   | { type: 'CLOSE_EXPORT_MODAL' }
+  | { type: 'TOGGLE_SETTINGS_PANEL' }
   | { type: 'SET_LOCATIONS'; locations: DVTLocation[] }
+  | { type: 'TOGGLE_LOCATION_HIDDEN'; locationId: string }
   | { type: 'BUMP_VIEW_REFRESH' }
 
 function getInitialColumnOrders(locationId: string): Record<ColumnSection, string[]> {
@@ -91,9 +122,8 @@ function reducer(state: AppState, action: Action): AppState {
         data: { ...existing.data, [key]: value },
         confidence: { ...existing.confidence, [key]: confidence },
       }
-      const pendingKey = `${locationId}:${date}`
       const newPending = new Set(state.pendingChanges)
-      newPending.add(pendingKey)
+      newPending.add(`${locationId}:${date}`)
       return { ...state, entries: { ...state.entries, [locationId]: { ...locEntries, [date]: updated } }, pendingChanges: newPending }
     }
 
@@ -123,11 +153,9 @@ function reducer(state: AppState, action: Action): AppState {
         newData[key] = field.value
         newConf[key] = field.confidence
       }
-      const updated: DailyEntry = { ...existing, data: newData, confidence: newConf }
-      const pendingKey = `${locationId}:${date}`
       const newPending = new Set(state.pendingChanges)
-      newPending.add(pendingKey)
-      return { ...state, entries: { ...state.entries, [locationId]: { ...locEntries, [date]: updated } }, pendingChanges: newPending }
+      newPending.add(`${locationId}:${date}`)
+      return { ...state, entries: { ...state.entries, [locationId]: { ...locEntries, [date]: { ...existing, data: newData, confidence: newConf } } }, pendingChanges: newPending }
     }
 
     case 'SET_TODAY_STATUS':
@@ -139,6 +167,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_LOADING_ENTRIES':
       return { ...state, isLoadingEntries: action.loading }
 
+    case 'SET_LOADING_LOCATIONS':
+      return { ...state, isLoadingLocations: action.loading }
+
     case 'TOGGLE_UPLOAD_PANEL':
       return { ...state, uploadPanelOpen: !state.uploadPanelOpen }
 
@@ -148,8 +179,19 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_EXPORT_MODAL':
       return { ...state, exportModalOpen: false }
 
+    case 'TOGGLE_SETTINGS_PANEL':
+      return { ...state, settingsPanelOpen: !state.settingsPanelOpen }
+
     case 'SET_LOCATIONS':
       return { ...state, locations: action.locations }
+
+    case 'TOGGLE_LOCATION_HIDDEN': {
+      const next = new Set(state.hiddenLocationIds)
+      if (next.has(action.locationId)) next.delete(action.locationId)
+      else next.add(action.locationId)
+      saveHiddenLocations(next)
+      return { ...state, hiddenLocationIds: next }
+    }
 
     case 'BUMP_VIEW_REFRESH':
       return { ...state, viewRefreshTrigger: state.viewRefreshTrigger + 1 }
@@ -164,15 +206,14 @@ interface AppContextValue {
   dispatch: React.Dispatch<Action>
   loadEntries: (locationId: string) => Promise<void>
   savePendingEntry: (locationId: string, date: string) => Promise<void>
+  visibleLocations: DVTLocation[]
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
 
-const FIRST_LOCATION_ID = 'LOC001'
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer<Reducer<AppState, Action>>(reducer, {
-    activeLocationId: FIRST_LOCATION_ID,
+    activeLocationId: '',
     activeSection: 'eod',
     dateRange: { start: subtractDays(4), end: today() },
     theme: getInitialTheme(),
@@ -183,9 +224,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     locationsWithDataToday: new Set(),
     saveStatus: 'idle',
     isLoadingEntries: false,
+    isLoadingLocations: true,
     uploadPanelOpen: false,
     exportModalOpen: false,
+    settingsPanelOpen: false,
     locations: [],
+    hiddenLocationIds: loadHiddenLocations(),
     viewRefreshTrigger: 0,
   })
 
@@ -194,15 +238,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('dvt_theme', state.theme)
   }, [state.theme])
 
-  // Load locations from Supabase (only active ones shown in sidebar)
+  // Load locations — fall back to static config if Supabase table isn't set up yet
   useEffect(() => {
+    dispatch({ type: 'SET_LOADING_LOCATIONS', loading: true })
+
+    const timer = setTimeout(() => {
+      // If still loading after 6s, use static fallback
+      dispatch({ type: 'SET_LOCATIONS', locations: staticLocations() })
+      dispatch({ type: 'SET_LOADING_LOCATIONS', loading: false })
+    }, 6000)
+
     fetchLocations()
       .then(locs => {
-        dispatch({ type: 'SET_LOCATIONS', locations: locs })
-        const firstActive = locs.find(l => l.is_active)
+        clearTimeout(timer)
+        const resolved = locs.length > 0 ? locs : staticLocations()
+        dispatch({ type: 'SET_LOCATIONS', locations: resolved })
+        const firstActive = resolved.find(l => l.is_active)
         if (firstActive) dispatch({ type: 'SET_LOCATION', locationId: firstActive.location_id })
       })
-      .catch(console.error)
+      .catch(() => {
+        clearTimeout(timer)
+        // Supabase table may not exist yet — use static config
+        const fallback = staticLocations()
+        dispatch({ type: 'SET_LOCATIONS', locations: fallback })
+        if (fallback[0]) dispatch({ type: 'SET_LOCATION', locationId: fallback[0].location_id })
+      })
+      .finally(() => dispatch({ type: 'SET_LOADING_LOCATIONS', loading: false }))
+
+    return () => clearTimeout(timer)
   }, [])
 
   useEffect(() => {
@@ -214,6 +277,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state.locations])
 
   const loadEntries = useCallback(async (locationId: string) => {
+    if (!locationId) return
     dispatch({ type: 'SET_LOADING_ENTRIES', loading: true })
     try {
       const entries = await fetchEntries(locationId, state.dateRange.start, state.dateRange.end)
@@ -244,8 +308,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadEntries(state.activeLocationId)
   }, [state.activeLocationId, state.dateRange.start, state.dateRange.end])
 
+  // Active locations that this user hasn't hidden
+  const visibleLocations = state.locations.filter(
+    l => l.is_active && !state.hiddenLocationIds.has(l.location_id)
+  )
+
   return (
-    <AppContext.Provider value={{ state, dispatch, loadEntries, savePendingEntry }}>
+    <AppContext.Provider value={{ state, dispatch, loadEntries, savePendingEntry, visibleLocations }}>
       {children}
     </AppContext.Provider>
   )

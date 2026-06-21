@@ -6,12 +6,12 @@ import { LocationItem } from './LocationItem'
 import sbLogoUrl from '../../assets/sb-trademark-logo.svg'
 
 export function Sidebar() {
-  const { state, dispatch } = useAppContext()
+  const { state, dispatch, visibleLocations } = useAppContext()
   const { role, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
-  const activeLocations = state.locations.filter(l => l.is_active)
+  const { isLoadingLocations } = state
 
   return (
     <aside
@@ -32,16 +32,22 @@ export function Sidebar() {
           Locations
         </p>
 
-        {state.locations.length === 0 ? (
-          <div className="px-2 py-3 text-xs" style={{ color: 'rgba(183,224,222,0.3)', fontFamily: 'DM Mono, monospace' }}>
-            Loading…
+        {isLoadingLocations ? (
+          <div className="px-2 py-4 space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div
+                key={i}
+                className="h-8 rounded-md animate-pulse"
+                style={{ background: 'rgba(183,224,222,0.07)', width: `${75 + (i % 3) * 10}%` }}
+              />
+            ))}
           </div>
-        ) : activeLocations.length === 0 ? (
+        ) : visibleLocations.length === 0 ? (
           <div className="px-2 py-3 text-xs" style={{ color: 'rgba(183,224,222,0.3)', fontFamily: 'DM Mono, monospace' }}>
-            No active locations
+            {state.locations.length === 0 ? 'No locations found' : 'All locations hidden — use ⚙ to show'}
           </div>
         ) : (
-          activeLocations.map(loc => (
+          visibleLocations.map(loc => (
             <LocationItem
               key={loc.location_id}
               location={{ id: loc.location_id, name: loc.name, sheetName: loc.sheet_name }}
