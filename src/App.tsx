@@ -9,6 +9,7 @@ import { UploadPanel } from './components/UploadPanel/UploadPanel'
 import { ExportModal } from './components/ExportModal/ExportModal'
 import { Login } from './pages/Login'
 import { LocationsAdmin } from './pages/LocationsAdmin'
+import { UpdatePrompt } from './components/UpdatePrompt'
 import { purgeOldEntries } from './lib/supabase'
 
 function ProtectedShell() {
@@ -79,6 +80,7 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <UpdatePrompt />
       </BrowserRouter>
     </AuthProvider>
   )
