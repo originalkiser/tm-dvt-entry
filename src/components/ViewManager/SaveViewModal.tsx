@@ -1,15 +1,17 @@
 import React, { useState } from 'react'
-import { saveColumnView } from '../../lib/supabase'
+import { saveColumnView, ColumnMeta, LegendEntry } from '../../lib/supabase'
 import { ColumnSection } from '../../config/columns'
 
 interface Props {
   section: ColumnSection
   currentColumnOrder: string[]
+  columnMeta?: Record<string, ColumnMeta>
+  legend?: LegendEntry[]
   onSaved: (viewId: string, viewName: string) => void
   onClose: () => void
 }
 
-export function SaveViewModal({ section, currentColumnOrder, onSaved, onClose }: Props) {
+export function SaveViewModal({ section, currentColumnOrder, columnMeta, legend, onSaved, onClose }: Props) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -20,7 +22,7 @@ export function SaveViewModal({ section, currentColumnOrder, onSaved, onClose }:
     setIsSaving(true)
     setError(null)
     try {
-      const view = await saveColumnView(name.trim(), section, currentColumnOrder, description.trim() || undefined)
+      const view = await saveColumnView(name.trim(), section, currentColumnOrder, description.trim() || undefined, columnMeta, legend)
       onSaved(view.id, view.name)
     } catch (e) {
       setError(String(e))
@@ -95,6 +97,22 @@ export function SaveViewModal({ section, currentColumnOrder, onSaved, onClose }:
           {error && (
             <div className="text-xs p-2 rounded" style={{ background: 'rgba(220,38,38,0.1)', color: 'var(--color-danger)' }}>
               {error}
+            </div>
+          )}
+
+          {/* Show active metadata summary */}
+          {(Object.keys(columnMeta ?? {}).length > 0 || (legend?.length ?? 0) > 0) && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {Object.keys(columnMeta ?? {}).length > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(183,224,222,0.08)', color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                  {Object.keys(columnMeta!).length} column settings
+                </span>
+              )}
+              {(legend?.length ?? 0) > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(183,224,222,0.08)', color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                  {legend!.length} legend {legend!.length === 1 ? 'group' : 'groups'}
+                </span>
+              )}
             </div>
           )}
 

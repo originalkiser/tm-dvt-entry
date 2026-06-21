@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { ColumnDef } from '../../config/columns'
 import { useAppContext } from '../../context/AppContext'
+import { ColumnMeta, getGroupColor } from '../../types/viewMeta'
 
 interface Props {
   locationId: string
@@ -12,6 +13,8 @@ interface Props {
   onNavigate: (direction: 'right' | 'left' | 'down' | 'up') => void
   sourceCell?: string
   sourceFile?: string
+  meta?: ColumnMeta
+  formulaValue?: number | null
 }
 
 function formatValue(value: unknown, type: ColumnDef['type']): string {
@@ -31,13 +34,20 @@ export function GridCell({
   onNavigate,
   sourceCell,
   sourceFile,
+  meta,
+  formulaValue,
 }: Props) {
   const { dispatch, savePendingEntry } = useAppContext()
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const effectiveType = meta?.type ?? col.type
+  const isFormula = formulaValue !== undefined
+  const gc = getGroupColor(meta?.colorId)
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isFormula) return
     const raw = e.target.value
-    const parsed = col.type !== 'text' ? (raw === '' ? '' : parseFloat(raw.replace(/[$,%]/g, ''))) : raw
+    const parsed = effectiveType !== 'text' ? (raw === '' ? '' : parseFloat(raw.replace(/[$,%]/g, ''))) : raw
     dispatch({
       type: 'SET_CELL',
       locationId,
@@ -50,6 +60,7 @@ export function GridCell({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isFormula) return
     if (e.key === 'Tab') {
       e.preventDefault()
       onNavigate(e.shiftKey ? 'left' : 'right')
@@ -81,29 +92,48 @@ export function GridCell({
       ? `Review — parsed from ${sourceFile}${sourceCell ? `, cell ${sourceCell}` : ''}`
       : undefined
 
-  const prefix = col.type === 'currency' ? '$' : col.type === 'percent' ? '' : ''
-  const suffix = col.type === 'percent' ? '%' : ''
+  const prefix = effectiveType === 'currency' ? '$' : ''
+  const suffix = effectiveType === 'percent' ? '%' : ''
+
+  // For formula cells: display the computed value, formatted by effectiveType
+  const displayValue = isFormula
+    ? formulaValue !== null && formulaValue !== undefined
+      ? String(formulaValue)
+      : ''
+    : formatValue(value, effectiveType)
+
+  const minWidth = effectiveType === 'text' ? 160 : 90
+  const maxWidth = effectiveType === 'text' ? 240 : 130
 
   return (
     <td
       className={`relative ${confClass}`}
       style={{
         padding: 0,
-        minWidth: col.type === 'text' ? 160 : 90,
-        maxWidth: col.type === 'text' ? 240 : 130,
+        minWidth,
+        maxWidth,
         borderRight: '1px solid var(--color-border)',
         borderBottom: '1px solid var(--color-border)',
+        background: gc ? gc.tint : undefined,
       }}
-      title={tooltip}
+      title={isFormula ? `= ${meta?.formula}` : tooltip}
     >
-      {isPending && <span className="pending-dot" />}
-      {confidence === 'uncertain' && (
+      {isPending && !isFormula && <span className="pending-dot" />}
+      {confidence === 'uncertain' && !isFormula && (
         <span
           className="absolute right-1 top-1 text-xs leading-none"
           style={{ color: 'var(--conf-uncertain)' }}
           title={tooltip}
         >
           ⚠
+        </span>
+      )}
+      {isFormula && (
+        <span
+          className="absolute left-1 top-1 leading-none"
+          style={{ color: gc?.accent ?? 'var(--sb-sky)', fontSize: 8, opacity: 0.5 }}
+        >
+          ƒ
         </span>
       )}
       <div className="flex items-center">
@@ -114,18 +144,23 @@ export function GridCell({
         )}
         <input
           ref={inputRef}
-          type={col.type === 'text' ? 'text' : 'number'}
-          step={col.type === 'currency' || col.type === 'percent' ? '0.01' : '1'}
-          value={formatValue(value, col.type)}
+          type={effectiveType === 'text' ? 'text' : 'number'}
+          step={effectiveType === 'currency' || effectiveType === 'percent' ? '0.01' : '1'}
+          value={displayValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          readOnly={isFormula}
+          tabIndex={isFormula ? -1 : undefined}
           data-col={col.key}
           data-date={date}
           className="w-full bg-transparent outline-none text-sm px-1 py-1.5"
           style={{
             fontFamily: 'DM Mono, monospace',
-            color: 'var(--color-text-primary)',
+            color: isFormula ? (gc?.accent ?? 'var(--color-text-secondary)') : 'var(--color-text-primary)',
             minWidth: 0,
+            opacity: isFormula ? 0.8 : 1,
+            cursor: isFormula ? 'default' : undefined,
+            fontStyle: isFormula ? 'italic' : undefined,
           }}
         />
         {suffix && (

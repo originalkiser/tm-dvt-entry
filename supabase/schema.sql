@@ -42,6 +42,11 @@ create table if not exists dvt_column_views (
   created_at timestamptz default now()
 );
 
+-- Per-column metadata (color group, note, type override, formula)
+alter table dvt_column_views add column if not exists column_meta jsonb not null default '{}';
+-- Legend entries: [{colorId, label}] defining what each color group means
+alter table dvt_column_views add column if not exists legend jsonb not null default '[]';
+
 -- Per-user DVT access control (cross-references user_profiles from tm-opsperformance)
 -- Relies on get_user_role() function defined in the tm-opsperformance schema.
 -- Ops admins (user_profiles.role = 'admin') always have DVT access regardless of this table.

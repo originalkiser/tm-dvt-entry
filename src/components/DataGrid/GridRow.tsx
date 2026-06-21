@@ -1,8 +1,9 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { ColumnDef } from '../../config/columns'
 import { DailyEntry } from '../../lib/supabase'
 import { GridCell } from './GridCell'
 import { formatDateShort } from '../../lib/dateUtils'
+import { ColumnMeta, evaluateFormula } from '../../types/viewMeta'
 
 interface Props {
   locationId: string
@@ -14,6 +15,7 @@ interface Props {
   rowIndex: number
   totalRows: number
   parseSourceMap: Record<string, { filename: string; sourceCell?: string }>
+  columnMeta?: Record<string, ColumnMeta>
 }
 
 export function GridRow({
@@ -26,7 +28,20 @@ export function GridRow({
   rowIndex,
   totalRows,
   parseSourceMap,
+  columnMeta,
 }: Props) {
+  // Compute formula values — updates whenever entry.data changes as the user types
+  const formulaValues = useMemo(() => {
+    const computed: Record<string, number | null> = {}
+    if (!columnMeta) return computed
+    const data = entry?.data ?? {}
+    for (const col of columns) {
+      const m = columnMeta[col.key]
+      if (m?.formula) computed[col.key] = evaluateFormula(m.formula, data)
+    }
+    return computed
+  }, [columns, columnMeta, entry?.data])
+
   const handleNavigate = useCallback(
     (colKey: string, direction: 'right' | 'left' | 'down' | 'up') => {
       const colIdx = colKeys.indexOf(colKey)
@@ -89,6 +104,8 @@ export function GridRow({
       {columns.map((col) => {
         const confidence = entry?.confidence?.[col.key]
         const parseSource = parseSourceMap[col.key]
+        const m = columnMeta?.[col.key]
+        const isFormula = Boolean(m?.formula)
         return (
           <GridCell
             key={col.key}
@@ -96,11 +113,13 @@ export function GridRow({
             date={date}
             col={col}
             value={entry?.data?.[col.key]}
-            confidence={confidence}
+            confidence={isFormula ? undefined : confidence}
             isPending={false}
             sourceCell={parseSource?.sourceCell}
             sourceFile={parseSource?.filename}
             onNavigate={(dir) => handleNavigate(col.key, dir)}
+            meta={m}
+            formulaValue={isFormula ? formulaValues[col.key] : undefined}
           />
         )
       })}

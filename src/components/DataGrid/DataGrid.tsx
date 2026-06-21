@@ -7,11 +7,13 @@ import { useAppContext, COLUMNS } from '../../context/AppContext'
 import { datesInRange } from '../../lib/dateUtils'
 import { ColumnSection } from '../../config/columns'
 import { ColumnView } from '../../lib/supabase'
+import { ColumnMeta, LegendEntry, getGroupColor } from '../../types/viewMeta'
 import { GridHeader } from './GridHeader'
 import { GridRow } from './GridRow'
 import { TotalsRow } from './TotalsRow'
 import { SaveViewModal } from '../ViewManager/SaveViewModal'
 import { ViewSelector } from '../ViewManager/ViewSelector'
+import { ColumnSettingsModal } from '../ColumnEditor/ColumnSettingsModal'
 import { getColumnOrder } from '../../hooks/useColumnOrder'
 
 export function DataGrid() {
@@ -19,7 +21,10 @@ export function DataGrid() {
   const { activeLocationId, activeSection, dateRange, entries, columnOrders, pendingChanges, parseResults, isLoadingEntries } = state
 
   const [showSaveView, setShowSaveView] = useState(false)
+  const [showColumnSettings, setShowColumnSettings] = useState(false)
   const [viewRefreshTrigger, setViewRefreshTrigger] = useState(0)
+  const [columnMeta, setColumnMeta] = useState<Record<string, ColumnMeta>>({})
+  const [legend, setLegend] = useState<LegendEntry[]>([])
 
   const locEntries = entries[activeLocationId] ?? {}
   const dates = useMemo(() => datesInRange(dateRange.start, dateRange.end), [dateRange.start, dateRange.end])
@@ -61,6 +66,8 @@ export function DataGrid() {
     const validKeys = view.column_keys.filter(k => sectionCols.some(c => c.key === k))
     const missing = sectionCols.filter(c => !validKeys.includes(c.key)).map(c => c.key)
     dispatch({ type: 'SET_COLUMN_ORDER', locationId: activeLocationId, section: activeSection, order: [...validKeys, ...missing] })
+    setColumnMeta(view.column_meta ?? {})
+    setLegend(view.legend ?? [])
   }
 
   const sectionTabStyle = (s: ColumnSection): React.CSSProperties => ({
@@ -110,6 +117,19 @@ export function DataGrid() {
 
         {/* View controls */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowColumnSettings(true)}
+            className="text-xs px-3 py-1.5 rounded-md font-semibold transition-colors"
+            style={{
+              background: 'rgba(183,224,222,0.08)',
+              border: '1px solid rgba(183,224,222,0.2)',
+              color: 'var(--sb-sky)',
+              fontFamily: 'DM Mono, monospace',
+            }}
+            title="Color groups, notes, type overrides, formulas"
+          >
+            ⚙ Columns
+          </button>
           <ViewSelector section={activeSection} onApply={applyView} refreshTrigger={viewRefreshTrigger} />
           <button
             onClick={() => setShowSaveView(true)}
@@ -126,6 +146,35 @@ export function DataGrid() {
         </div>
       </div>
 
+      {/* Legend bar — only shown when the active view has legend entries */}
+      {legend.length > 0 && (
+        <div
+          className="flex items-center gap-3 px-4 py-1.5 flex-wrap flex-shrink-0"
+          style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-card-bg)' }}
+        >
+          <span className="text-xs font-semibold" style={{ color: 'rgba(183,224,222,0.4)', fontFamily: 'DM Mono, monospace', letterSpacing: '0.06em', flexShrink: 0 }}>
+            LEGEND
+          </span>
+          {legend.map(entry => {
+            const gc = getGroupColor(entry.colorId)
+            return (
+              <div
+                key={entry.colorId}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded"
+                style={{ background: gc?.tint ?? 'rgba(183,224,222,0.06)', border: `1px solid ${gc?.accent ?? 'var(--color-border)'}` }}
+              >
+                <span
+                  style={{ width: 8, height: 8, borderRadius: '50%', background: gc?.accent ?? 'var(--sb-sky)', flexShrink: 0, display: 'inline-block' }}
+                />
+                <span className="text-xs" style={{ color: gc?.accent ?? 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                  {entry.label}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Grid */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <div className="flex-1 overflow-auto relative" style={{ minHeight: 0 }}>
@@ -135,7 +184,7 @@ export function DataGrid() {
             </div>
           ) : (
             <table style={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
-              <GridHeader columns={orderedColumns} />
+              <GridHeader columns={orderedColumns} columnMeta={columnMeta} />
               <tbody>
                 {dates.length === 0 ? (
                   <tr>
@@ -156,20 +205,34 @@ export function DataGrid() {
                       rowIndex={idx}
                       totalRows={dates.length}
                       parseSourceMap={parseSourceMap}
+                      columnMeta={columnMeta}
                     />
                   ))
                 )}
-                <TotalsRow columns={orderedColumns} entries={locEntries} dates={dates} />
+                <TotalsRow columns={orderedColumns} entries={locEntries} dates={dates} columnMeta={columnMeta} />
               </tbody>
             </table>
           )}
         </div>
       </DndContext>
 
+      {showColumnSettings && (
+        <ColumnSettingsModal
+          section={activeSection}
+          columns={orderedColumns}
+          initialMeta={columnMeta}
+          initialLegend={legend}
+          onApply={(meta, leg) => { setColumnMeta(meta); setLegend(leg); setShowColumnSettings(false) }}
+          onClose={() => setShowColumnSettings(false)}
+        />
+      )}
+
       {showSaveView && (
         <SaveViewModal
           section={activeSection}
           currentColumnOrder={colOrder}
+          columnMeta={columnMeta}
+          legend={legend}
           onSaved={() => { setShowSaveView(false); setViewRefreshTrigger(t => t + 1) }}
           onClose={() => setShowSaveView(false)}
         />

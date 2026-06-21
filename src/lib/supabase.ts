@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
+import { ColumnMeta, LegendEntry } from '../types/viewMeta'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export type { ColumnMeta, LegendEntry }
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -35,6 +38,8 @@ export interface ColumnView {
   is_global: boolean
   created_by: string | null
   created_at: string
+  column_meta: Record<string, ColumnMeta> | null
+  legend: LegendEntry[] | null
 }
 
 export type DVTRole = 'admin' | 'area_manager' | 'user'
@@ -263,12 +268,22 @@ export async function saveColumnView(
   name: string,
   section: 'md' | 'eod',
   columnKeys: string[],
-  description?: string
+  description?: string,
+  columnMeta?: Record<string, ColumnMeta>,
+  legend?: LegendEntry[]
 ): Promise<ColumnView> {
   const { data: { user } } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from('dvt_column_views')
-    .insert({ name, section, column_keys: columnKeys, description: description ?? null, created_by: user?.id ?? null })
+    .insert({
+      name,
+      section,
+      column_keys: columnKeys,
+      description: description ?? null,
+      created_by: user?.id ?? null,
+      column_meta: columnMeta ?? {},
+      legend: legend ?? [],
+    })
     .select()
     .single()
   if (error) throw error
