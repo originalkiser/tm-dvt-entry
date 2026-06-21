@@ -1,0 +1,524 @@
+import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import {
+  fetchLocations, updateLocationActive, addLocation, DVTLocation,
+  fetchAllUsers, updateUserDvtAccess, UserWithAccess,
+} from '../lib/supabase'
+
+type AdminTab = 'locations' | 'users'
+
+// ── Shared helpers ────────────────────────────────────────────────────────
+
+function ErrorBanner({ message, onClose }: { message: string | null; onClose: () => void }) {
+  if (!message) return null
+  return (
+    <div
+      className="flex items-center justify-between gap-3 text-sm p-3 rounded-lg mb-4"
+      style={{ background: 'rgba(220,38,38,0.1)', color: 'var(--color-danger)', border: '1px solid rgba(220,38,38,0.2)' }}
+    >
+      <span>{message}</span>
+      <button onClick={onClose} style={{ opacity: 0.6, flexShrink: 0 }}>✕</button>
+    </div>
+  )
+}
+
+function OpsRoleChip({ role }: { role: string }) {
+  const label = role === 'admin' ? 'Admin' : role === 'area_manager' ? 'Area Mgr' : 'User'
+  const color = role === 'admin' ? 'var(--conf-certain)' : role === 'area_manager' ? 'var(--sb-sky)' : 'rgba(183,224,222,0.5)'
+  const bg = role === 'admin' ? 'var(--conf-certain-bg)' : role === 'area_manager' ? 'rgba(183,224,222,0.1)' : 'rgba(183,224,222,0.05)'
+  return (
+    <span
+      className="text-xs px-1.5 py-0.5 rounded font-mono"
+      style={{ color, background: bg, border: `1px solid ${color}`, opacity: 0.85 }}
+    >
+      {label}
+    </span>
+  )
+}
+
+// ── Locations tab ─────────────────────────────────────────────────────────
+
+function LocationsTab() {
+  const [locations, setLocations] = useState<DVTLocation[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newLoc, setNewLoc] = useState({ location_id: '', name: '', sheet_name: '' })
+  const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    fetchLocations()
+      .then(setLocations)
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setIsLoading(false))
+  }, [])
+
+  const toggleActive = async (loc: DVTLocation) => {
+    setSaving(loc.location_id)
+    try {
+      await updateLocationActive(loc.location_id, !loc.is_active)
+      setLocations(prev => prev.map(l =>
+        l.location_id === loc.location_id ? { ...l, is_active: !l.is_active } : l
+      ))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newLoc.location_id || !newLoc.name || !newLoc.sheet_name) return
+    setAdding(true)
+    try {
+      await addLocation(newLoc)
+      const updated = await fetchLocations()
+      setLocations(updated)
+      setNewLoc({ location_id: '', name: '', sheet_name: '' })
+      setShowAddForm(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const active = locations.filter(l => l.is_active)
+  const inactive = locations.filter(l => !l.is_active)
+
+  const inputStyle: React.CSSProperties = {
+    background: 'var(--color-input-bg)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 6,
+    padding: '6px 10px',
+    color: 'var(--color-text-primary)',
+    fontSize: 13,
+    fontFamily: 'DM Mono, monospace',
+    width: '100%',
+    outline: 'none',
+  }
+
+  return (
+    <div className="space-y-5">
+      <ErrorBanner message={error} onClose={() => setError(null)} />
+
+      {/* Add location */}
+      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+        <div
+          className="flex items-center justify-between px-4 py-3 cursor-pointer"
+          style={{ borderBottom: showAddForm ? '1px solid var(--color-border)' : undefined }}
+          onClick={() => setShowAddForm(s => !s)}
+        >
+          <span className="text-sm font-semibold font-display" style={{ color: 'var(--sb-sky)' }}>
+            + Add Location
+          </span>
+          <span style={{ color: 'rgba(183,224,222,0.4)', fontSize: 12 }}>{showAddForm ? '▲' : '▼'}</span>
+        </div>
+        {showAddForm && (
+          <form onSubmit={handleAdd} className="p-4 space-y-3">
+            <div className="grid grid-cols-1 gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                  LOCATION ID
+                </label>
+                <input
+                  style={inputStyle}
+                  placeholder="1533-Dallas"
+                  value={newLoc.location_id}
+                  onChange={e => setNewLoc(p => ({ ...p, location_id: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                  DISPLAY NAME
+                </label>
+                <input
+                  style={inputStyle}
+                  placeholder="1533 – Dallas (Main St)"
+                  value={newLoc.name}
+                  onChange={e => setNewLoc(p => ({ ...p, name: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                  SHEET NAME
+                </label>
+                <input
+                  style={inputStyle}
+                  placeholder="1533-Dallas-Main St"
+                  value={newLoc.sheet_name}
+                  onChange={e => setNewLoc(p => ({ ...p, sheet_name: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAddForm(false)}
+                className="text-xs px-3 py-1.5 rounded"
+                style={{ color: 'var(--color-text-secondary)', background: 'rgba(183,224,222,0.06)', border: '1px solid var(--color-border)' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={adding}
+                className="text-xs px-3 py-1.5 rounded font-semibold"
+                style={{ background: 'var(--conf-certain-bg)', color: 'var(--conf-certain)', border: '1px solid var(--conf-certain)', opacity: adding ? 0.6 : 1 }}
+              >
+                {adding ? 'Adding…' : 'Add Location'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}>
+          Loading locations…
+        </div>
+      ) : (
+        <>
+          <LocationSection title="Active Locations" count={active.length} locations={active} saving={saving} onToggle={toggleActive} countStyle="certain" />
+          {inactive.length > 0 && (
+            <LocationSection title="Inactive Locations" count={inactive.length} locations={inactive} saving={saving} onToggle={toggleActive} countStyle="muted" />
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function LocationSection({
+  title, count, locations, saving, onToggle, countStyle,
+}: {
+  title: string
+  count: number
+  locations: DVTLocation[]
+  saving: string | null
+  onToggle: (loc: DVTLocation) => void
+  countStyle: 'certain' | 'muted'
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-sm font-bold font-display" style={{ color: 'var(--color-text-primary)' }}>{title}</h2>
+        <span
+          className="text-xs px-1.5 py-0.5 rounded"
+          style={{
+            background: countStyle === 'certain' ? 'var(--conf-certain-bg)' : 'var(--color-input-bg)',
+            color: countStyle === 'certain' ? 'var(--conf-certain)' : 'var(--color-text-secondary)',
+            fontFamily: 'DM Mono, monospace',
+          }}
+        >
+          {count}
+        </span>
+      </div>
+      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+        {count === 0
+          ? <div className="p-4 text-sm text-center" style={{ color: 'var(--color-text-secondary)' }}>No {title.toLowerCase()}</div>
+          : locations.map(loc => (
+            <div
+              key={loc.location_id}
+              className="flex items-center justify-between px-4 py-2.5"
+              style={{ borderBottom: '1px solid var(--color-border)', opacity: loc.is_active ? 1 : 0.55 }}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: loc.is_active ? '#4ADE80' : 'rgba(183,224,222,0.2)' }}
+                />
+                <div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'Chakra Petch, sans-serif' }}>
+                    {loc.name}
+                  </div>
+                  <div className="text-xs" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}>
+                    {loc.location_id} · Sheet: {loc.sheet_name}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => onToggle(loc)}
+                disabled={saving === loc.location_id}
+                className="text-xs px-3 py-1.5 rounded-md font-semibold transition-colors flex-shrink-0"
+                style={{
+                  background: loc.is_active ? 'rgba(220,38,38,0.1)' : 'var(--conf-certain-bg)',
+                  color: loc.is_active ? 'var(--color-danger)' : 'var(--conf-certain)',
+                  border: `1px solid ${loc.is_active ? 'rgba(220,38,38,0.3)' : 'var(--conf-certain)'}`,
+                  opacity: saving === loc.location_id ? 0.5 : 1,
+                  fontFamily: 'DM Mono, monospace',
+                }}
+              >
+                {saving === loc.location_id ? '…' : loc.is_active ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  )
+}
+
+// ── Users tab ─────────────────────────────────────────────────────────────
+
+const DVT_ROLE_OPTIONS = [
+  { value: '', label: 'Inherit from Ops' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'area_manager', label: 'Area Manager' },
+  { value: 'user', label: 'User' },
+]
+
+function mapOpsRoleLabel(opsRole: string) {
+  if (opsRole === 'admin') return 'Admin'
+  if (opsRole === 'area_manager') return 'Area Manager'
+  return 'User'
+}
+
+function UsersTab() {
+  const [users, setUsers] = useState<UserWithAccess[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchAllUsers()
+      .then(setUsers)
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setIsLoading(false))
+  }, [])
+
+  const handleToggleAccess = async (user: UserWithAccess) => {
+    const next = !user.dvt_access
+    setSaving(user.id)
+    try {
+      await updateUserDvtAccess(user.id, next, user.dvt_role)
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, dvt_access: next } : u))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const handleRoleChange = async (user: UserWithAccess, dvtRole: string) => {
+    const role = dvtRole === '' ? null : dvtRole
+    setSaving(user.id)
+    try {
+      await updateUserDvtAccess(user.id, user.dvt_access, role)
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, dvt_role: role } : u))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const selectStyle: React.CSSProperties = {
+    background: 'var(--color-input-bg)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 6,
+    padding: '4px 8px',
+    color: 'var(--color-text-primary)',
+    fontSize: 12,
+    fontFamily: 'DM Mono, monospace',
+    outline: 'none',
+    cursor: 'pointer',
+  }
+
+  return (
+    <div className="space-y-4">
+      <ErrorBanner message={error} onClose={() => setError(null)} />
+
+      {isLoading ? (
+        <div className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}>
+          Loading users…
+        </div>
+      ) : users.length === 0 ? (
+        <div className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+          No users found
+        </div>
+      ) : (
+        <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+          {/* Table header */}
+          <div
+            className="grid px-4 py-2 text-xs font-semibold"
+            style={{
+              gridTemplateColumns: '1fr auto auto auto',
+              gap: 16,
+              color: 'rgba(183,224,222,0.4)',
+              fontFamily: 'DM Mono, monospace',
+              borderBottom: '1px solid var(--color-border)',
+              background: 'var(--color-topbar-bg)',
+            }}
+          >
+            <span>USER</span>
+            <span>OPS ROLE</span>
+            <span>DVT ACCESS</span>
+            <span>DVT ROLE</span>
+          </div>
+
+          {users.map(user => {
+            const isSaving = saving === user.id
+            const isOpsAdmin = user.ops_role === 'admin'
+            return (
+              <div
+                key={user.id}
+                className="grid items-center px-4 py-3"
+                style={{
+                  gridTemplateColumns: '1fr auto auto auto',
+                  gap: 16,
+                  borderBottom: '1px solid var(--color-border)',
+                  opacity: isSaving ? 0.6 : 1,
+                }}
+              >
+                {/* Name + email */}
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
+                    {user.name ?? '(no name)'}
+                  </div>
+                  {user.email && (
+                    <div className="text-xs truncate" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}>
+                      {user.email}
+                    </div>
+                  )}
+                </div>
+
+                {/* Ops role */}
+                <div className="flex-shrink-0">
+                  <OpsRoleChip role={user.ops_role} />
+                </div>
+
+                {/* DVT Access toggle */}
+                <div className="flex-shrink-0 flex items-center justify-center">
+                  {isOpsAdmin ? (
+                    <span className="text-xs" style={{ color: 'rgba(183,224,222,0.35)', fontFamily: 'DM Mono, monospace' }}>always on</span>
+                  ) : (
+                    <button
+                      onClick={() => handleToggleAccess(user)}
+                      disabled={isSaving}
+                      className="relative rounded-full transition-colors flex-shrink-0"
+                      style={{
+                        width: 36,
+                        height: 20,
+                        background: user.dvt_access ? 'var(--conf-certain)' : 'rgba(183,224,222,0.15)',
+                        border: '1px solid',
+                        borderColor: user.dvt_access ? 'var(--conf-certain)' : 'rgba(183,224,222,0.2)',
+                        cursor: isSaving ? 'default' : 'pointer',
+                      }}
+                      title={user.dvt_access ? 'Revoke DVT access' : 'Grant DVT access'}
+                    >
+                      <span
+                        className="absolute rounded-full transition-transform"
+                        style={{
+                          width: 14,
+                          height: 14,
+                          top: 2,
+                          left: user.dvt_access ? 18 : 2,
+                          background: '#fff',
+                        }}
+                      />
+                    </button>
+                  )}
+                </div>
+
+                {/* DVT Role */}
+                <div className="flex-shrink-0">
+                  {isOpsAdmin ? (
+                    <span className="text-xs" style={{ color: 'rgba(183,224,222,0.35)', fontFamily: 'DM Mono, monospace' }}>admin</span>
+                  ) : user.dvt_access ? (
+                    <select
+                      value={user.dvt_role ?? ''}
+                      onChange={e => handleRoleChange(user, e.target.value)}
+                      disabled={isSaving}
+                      style={selectStyle}
+                    >
+                      {DVT_ROLE_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.value === '' ? `Inherit (${mapOpsRoleLabel(user.ops_role)})` : opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs" style={{ color: 'rgba(183,224,222,0.25)', fontFamily: 'DM Mono, monospace' }}>—</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <p className="text-xs" style={{ color: 'rgba(183,224,222,0.3)', fontFamily: 'DM Mono, monospace' }}>
+        Users are shared with TM-OpsPerformance. New users must be added via Supabase or the Ops app.
+        Ops admins always have DVT access regardless of the toggle.
+      </p>
+    </div>
+  )
+}
+
+// ── Main Admin page ───────────────────────────────────────────────────────
+
+export function Admin() {
+  const { role } = useAuth()
+  const navigate = useNavigate()
+  const [tab, setTab] = useState<AdminTab>('locations')
+
+  useEffect(() => {
+    if (role !== 'admin') navigate('/')
+  }, [role, navigate])
+
+  const tabBtn = (t: AdminTab, label: string) => (
+    <button
+      onClick={() => setTab(t)}
+      className="px-4 py-2 text-sm font-semibold transition-colors"
+      style={{
+        color: tab === t ? 'var(--sb-sky)' : 'rgba(183,224,222,0.4)',
+        borderBottom: tab === t ? '2px solid var(--sb-sky)' : '2px solid transparent',
+        fontFamily: 'Chakra Petch, sans-serif',
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--color-content-bg)' }}>
+      {/* Header */}
+      <div
+        className="flex items-center gap-4 px-6 py-3 border-b flex-shrink-0"
+        style={{ background: 'var(--color-topbar-bg)', borderColor: 'rgba(183,224,222,0.15)' }}
+      >
+        <button
+          onClick={() => navigate('/')}
+          className="text-sm flex items-center gap-1.5 transition-opacity hover:opacity-70 flex-shrink-0"
+          style={{ color: 'var(--sb-sky)', fontFamily: 'Chakra Petch, sans-serif' }}
+        >
+          ← Back
+        </button>
+        <h1 className="font-display font-bold text-lg flex-shrink-0" style={{ color: 'var(--sb-sky)' }}>
+          Admin
+        </h1>
+        <div className="flex items-center gap-0 flex-1">
+          {tabBtn('locations', 'Locations')}
+          {tabBtn('users', 'Users')}
+        </div>
+        <span
+          className="ml-auto text-xs px-2 py-0.5 rounded flex-shrink-0"
+          style={{ background: 'rgba(183,224,222,0.1)', color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}
+        >
+          Admin
+        </span>
+      </div>
+
+      <div className="max-w-4xl mx-auto p-6">
+        {tab === 'locations' ? <LocationsTab /> : <UsersTab />}
+      </div>
+    </div>
+  )
+}

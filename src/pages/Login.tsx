@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import sbLogoUrl from '../assets/sb-trademark-logo.svg'
 
 export function Login() {
   const { signIn } = useAuth()
@@ -44,13 +43,9 @@ export function Login() {
       >
         {/* Header */}
         <div className="flex flex-col items-center gap-3 pt-8 pb-6 px-8">
-          <img src={sbLogoUrl} alt="Strickland Brothers" className="w-16 h-16" />
           <h1 className="font-display font-bold text-xl" style={{ color: 'var(--sb-sky)' }}>
             DVT-Entry
           </h1>
-          <p className="text-xs text-center" style={{ color: 'rgba(183,224,222,0.5)' }}>
-            Strickland Brothers · Daily Value Tracker
-          </p>
         </div>
 
         {/* Form */}

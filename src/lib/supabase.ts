@@ -36,7 +36,14 @@ export interface ColumnView {
   created_at: string
 }
 
-export type DVTRole = 'admin' | 'user'
+export type DVTRole = 'admin' | 'area_manager' | 'user'
+
+// Maps ops-performance role strings to DVT roles
+function mapOpsRole(opsRole: string): DVTRole {
+  if (opsRole === 'admin') return 'admin'
+  if (opsRole === 'area_manager') return 'area_manager'
+  return 'user'
+}
 
 // ── Auth ─────────────────────────────────────────────────────────────────
 
@@ -44,14 +51,73 @@ export async function getCurrentUserRole(): Promise<DVTRole | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data } = await supabase
+  const { data: profile } = await supabase
     .from('user_profiles')
     .select('role')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
-  if (!data) return 'user'
-  return data.role === 'admin' ? 'admin' : 'user'
+  // Ops admins always have DVT admin access
+  if (profile?.role === 'admin') return 'admin'
+
+  // Check explicit DVT access grant
+  const { data: access } = await supabase
+    .from('dvt_user_access')
+    .select('dvt_access, dvt_role')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!access?.dvt_access) return null
+
+  // Explicit DVT role override, else inherit from ops role
+  if (access.dvt_role) return access.dvt_role as DVTRole
+  return mapOpsRole(profile?.role ?? 'store')
+}
+
+// ── User Management ───────────────────────────────────────────────────────
+
+export interface UserWithAccess {
+  id: string
+  name: string | null
+  email: string | null
+  ops_role: string
+  dvt_access: boolean
+  dvt_role: string | null
+}
+
+export async function fetchAllUsers(): Promise<UserWithAccess[]> {
+  const [profilesResult, accessResult] = await Promise.all([
+    supabase.from('user_profiles').select('id, name, role, email').order('name'),
+    supabase.from('dvt_user_access').select('user_id, dvt_access, dvt_role'),
+  ])
+  if (profilesResult.error) throw new Error(profilesResult.error.message)
+
+  const accessMap = new Map(
+    (accessResult.data ?? []).map(a => [a.user_id, a])
+  )
+
+  return (profilesResult.data ?? []).map(u => ({
+    id: u.id,
+    name: u.name ?? null,
+    email: u.email ?? null,
+    ops_role: u.role ?? 'store',
+    dvt_access: accessMap.get(u.id)?.dvt_access ?? false,
+    dvt_role: accessMap.get(u.id)?.dvt_role ?? null,
+  }))
+}
+
+export async function updateUserDvtAccess(
+  userId: string,
+  dvtAccess: boolean,
+  dvtRole: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('dvt_user_access')
+    .upsert(
+      { user_id: userId, dvt_access: dvtAccess, dvt_role: dvtRole, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+  if (error) throw new Error(error.message)
 }
 
 // ── Locations ────────────────────────────────────────────────────────────
@@ -70,7 +136,18 @@ export async function updateLocationActive(locationId: string, isActive: boolean
     .from('dvt_locations')
     .update({ is_active: isActive })
     .eq('location_id', locationId)
-  if (error) throw error
+  if (error) throw new Error(error.message)
+}
+
+export async function addLocation(params: {
+  location_id: string
+  name: string
+  sheet_name: string
+}): Promise<void> {
+  const { error } = await supabase
+    .from('dvt_locations')
+    .insert({ ...params, is_active: true })
+  if (error) throw new Error(error.message)
 }
 
 // ── Entries ──────────────────────────────────────────────────────────────

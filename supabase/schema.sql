@@ -40,6 +40,16 @@ create table if not exists dvt_column_views (
   created_at timestamptz default now()
 );
 
+-- Per-user DVT access control (cross-references user_profiles from tm-opsperformance)
+-- Relies on get_user_role() function defined in the tm-opsperformance schema.
+-- Ops admins (user_profiles.role = 'admin') always have DVT access regardless of this table.
+create table if not exists dvt_user_access (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  dvt_access boolean not null default false,
+  dvt_role text check (dvt_role in ('admin', 'area_manager', 'user')), -- null = inherit from ops role
+  updated_at timestamptz default now()
+);
+
 -- Per-user preferences (hidden locations, future settings)
 create table if not exists dvt_user_preferences (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -78,6 +88,7 @@ create trigger dvt_entries_updated_at
   for each row execute function update_updated_at();
 
 -- Row Level Security
+alter table dvt_user_access enable row level security;
 alter table dvt_user_preferences enable row level security;
 alter table dvt_locations     enable row level security;
 alter table dvt_daily_entries enable row level security;
@@ -87,6 +98,18 @@ alter table dvt_column_views   enable row level security;
 -- Anon: read locations + entries (data entry doesn't require login in the UI flow
 -- but Supabase Auth tokens are sent once logged in — authenticated role used for writes)
 -- User preferences: each user owns their own row
+-- DVT user access: admins manage all rows; users read their own row
+drop policy if exists "dvt_access_admin_all" on dvt_user_access;
+create policy "dvt_access_admin_all" on dvt_user_access
+  for all to authenticated
+  using    (get_user_role() = 'admin')
+  with check (get_user_role() = 'admin');
+
+drop policy if exists "dvt_access_self_read" on dvt_user_access;
+create policy "dvt_access_self_read" on dvt_user_access
+  for select to authenticated
+  using (user_id = auth.uid());
+
 drop policy if exists "dvt_prefs_own" on dvt_user_preferences;
 create policy "dvt_prefs_own" on dvt_user_preferences
   for all to authenticated

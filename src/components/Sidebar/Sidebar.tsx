@@ -190,7 +190,7 @@ export function Sidebar() {
         <div className="border-t px-2 py-2 space-y-1 flex-shrink-0" style={{ borderColor: 'rgba(183,224,222,0.15)' }}>
           {role === 'admin' && (
             <button
-              onClick={() => navigate('/admin/locations')}
+              onClick={() => navigate('/admin')}
               className="w-full text-left flex items-center gap-2 px-3 py-2 rounded text-xs transition-colors"
               style={{ color: 'var(--color-sidebar-text-muted)', background: 'rgba(183,224,222,0.06)' }}
             >
