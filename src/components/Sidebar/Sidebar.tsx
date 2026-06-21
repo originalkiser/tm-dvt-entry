@@ -194,7 +194,7 @@ export function Sidebar() {
               className="w-full text-left flex items-center gap-2 px-3 py-2 rounded text-xs transition-colors"
               style={{ color: 'var(--color-sidebar-text-muted)', background: 'rgba(183,224,222,0.06)' }}
             >
-              ⚙ Manage Locations
+              ⚙ Admin
             </button>
           )}
           <button

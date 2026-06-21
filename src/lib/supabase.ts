@@ -139,6 +139,14 @@ export async function updateLocationActive(locationId: string, isActive: boolean
   if (error) throw new Error(error.message)
 }
 
+export async function updateLocationSheetName(locationId: string, sheetName: string): Promise<void> {
+  const { error } = await supabase
+    .from('dvt_locations')
+    .update({ sheet_name: sheetName })
+    .eq('location_id', locationId)
+  if (error) throw new Error(error.message)
+}
+
 export async function addLocation(params: {
   location_id: string
   name: string

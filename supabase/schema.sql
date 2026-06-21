@@ -13,8 +13,8 @@ create table if not exists dvt_locations (
   created_at timestamptz default now()
 );
 
--- If upgrading from v1, add is_active column:
--- alter table dvt_locations add column if not exists is_active boolean not null default true;
+-- Ensure is_active exists (safe to run even if column already present)
+alter table dvt_locations add column if not exists is_active boolean not null default true;
 
 -- Daily entry rows
 create table if not exists dvt_daily_entries (

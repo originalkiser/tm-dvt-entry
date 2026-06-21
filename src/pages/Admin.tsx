@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
-  fetchLocations, updateLocationActive, addLocation, DVTLocation,
+  fetchLocations, updateLocationActive, updateLocationSheetName, addLocation, DVTLocation,
   fetchAllUsers, updateUserDvtAccess, UserWithAccess,
 } from '../lib/supabase'
 
 type AdminTab = 'locations' | 'users'
+
+// Fixed column widths — must match between header and rows
+const USER_COLS = '1fr 90px 110px 160px'
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -39,6 +42,11 @@ function OpsRoleChip({ role }: { role: string }) {
 
 // ── Locations tab ─────────────────────────────────────────────────────────
 
+interface EditingSheet {
+  locationId: string
+  value: string
+}
+
 function LocationsTab() {
   const [locations, setLocations] = useState<DVTLocation[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -47,6 +55,8 @@ function LocationsTab() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [newLoc, setNewLoc] = useState({ location_id: '', name: '', sheet_name: '' })
   const [adding, setAdding] = useState(false)
+  const [editingSheet, setEditingSheet] = useState<EditingSheet | null>(null)
+  const sheetInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchLocations()
@@ -54,6 +64,10 @@ function LocationsTab() {
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setIsLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (editingSheet) sheetInputRef.current?.focus()
+  }, [editingSheet])
 
   const toggleActive = async (loc: DVTLocation) => {
     setSaving(loc.location_id)
@@ -66,6 +80,25 @@ function LocationsTab() {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(null)
+    }
+  }
+
+  const saveSheetName = async () => {
+    if (!editingSheet) return
+    const trimmed = editingSheet.value.trim()
+    const loc = locations.find(l => l.location_id === editingSheet.locationId)
+    if (!trimmed || trimmed === loc?.sheet_name) { setEditingSheet(null); return }
+    setSaving(editingSheet.locationId)
+    try {
+      await updateLocationSheetName(editingSheet.locationId, trimmed)
+      setLocations(prev => prev.map(l =>
+        l.location_id === editingSheet.locationId ? { ...l, sheet_name: trimmed } : l
+      ))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(null)
+      setEditingSheet(null)
     }
   }
 
@@ -101,6 +134,87 @@ function LocationsTab() {
     outline: 'none',
   }
 
+  const LocationRow = ({ loc }: { loc: DVTLocation }) => {
+    const isSavingThis = saving === loc.location_id
+    const isEditingSheet = editingSheet?.locationId === loc.location_id
+
+    return (
+      <div
+        className="flex items-center justify-between px-4 py-2.5"
+        style={{ borderBottom: '1px solid var(--color-border)', opacity: (loc.is_active ? 1 : 0.55) }}
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0 mr-4">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: loc.is_active ? '#4ADE80' : 'rgba(183,224,222,0.2)' }}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'Chakra Petch, sans-serif' }}>
+              {loc.name}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace', flexShrink: 0 }}>
+                {loc.location_id} · Sheet:
+              </span>
+              {isEditingSheet ? (
+                <div className="flex items-center gap-1.5 flex-1">
+                  <input
+                    ref={sheetInputRef}
+                    value={editingSheet.value}
+                    onChange={e => setEditingSheet(s => s ? { ...s, value: e.target.value } : null)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveSheetName(); if (e.key === 'Escape') setEditingSheet(null) }}
+                    className="flex-1 min-w-0"
+                    style={{ ...inputStyle, padding: '2px 6px', fontSize: 11 }}
+                  />
+                  <button
+                    onClick={saveSheetName}
+                    disabled={isSavingThis}
+                    className="text-xs px-2 py-0.5 rounded"
+                    style={{ background: 'var(--conf-certain-bg)', color: 'var(--conf-certain)', border: '1px solid var(--conf-certain)', flexShrink: 0 }}
+                  >
+                    {isSavingThis ? '…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingSheet(null)}
+                    className="text-xs px-2 py-0.5 rounded"
+                    style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', flexShrink: 0 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingSheet({ locationId: loc.location_id, value: loc.sheet_name })}
+                  className="text-xs group flex items-center gap-1 transition-opacity hover:opacity-80"
+                  style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}
+                  title="Edit sheet name"
+                >
+                  <span>{loc.sheet_name}</span>
+                  <span style={{ opacity: 0, fontSize: 10 }} className="group-hover:opacity-60">✎</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => toggleActive(loc)}
+          disabled={isSavingThis}
+          className="text-xs px-3 py-1.5 rounded-md font-semibold transition-colors flex-shrink-0"
+          style={{
+            background: loc.is_active ? 'rgba(220,38,38,0.1)' : 'var(--conf-certain-bg)',
+            color: loc.is_active ? 'var(--color-danger)' : 'var(--conf-certain)',
+            border: `1px solid ${loc.is_active ? 'rgba(220,38,38,0.3)' : 'var(--conf-certain)'}`,
+            opacity: isSavingThis ? 0.5 : 1,
+            fontFamily: 'DM Mono, monospace',
+          }}
+        >
+          {isSavingThis ? '…' : loc.is_active ? 'Deactivate' : 'Activate'}
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
       <ErrorBanner message={error} onClose={() => setError(null)} />
@@ -119,43 +233,25 @@ function LocationsTab() {
         </div>
         {showAddForm && (
           <form onSubmit={handleAdd} className="p-4 space-y-3">
-            <div className="grid grid-cols-1 gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
-                  LOCATION ID
-                </label>
-                <input
-                  style={inputStyle}
-                  placeholder="1533-Dallas"
-                  value={newLoc.location_id}
-                  onChange={e => setNewLoc(p => ({ ...p, location_id: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
-                  DISPLAY NAME
-                </label>
-                <input
-                  style={inputStyle}
-                  placeholder="1533 – Dallas (Main St)"
-                  value={newLoc.name}
-                  onChange={e => setNewLoc(p => ({ ...p, name: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
-                  SHEET NAME
-                </label>
-                <input
-                  style={inputStyle}
-                  placeholder="1533-Dallas-Main St"
-                  value={newLoc.sheet_name}
-                  onChange={e => setNewLoc(p => ({ ...p, sheet_name: e.target.value }))}
-                  required
-                />
-              </div>
+            <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              {([
+                ['LOCATION ID', 'location_id', '1533-Dallas'],
+                ['DISPLAY NAME', 'name', '1533 – Dallas (Main St)'],
+                ['SHEET NAME', 'sheet_name', '1533-Dallas-Main St'],
+              ] as const).map(([label, key, placeholder]) => (
+                <div key={key} className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--sb-sky)', fontFamily: 'DM Mono, monospace' }}>
+                    {label}
+                  </label>
+                  <input
+                    style={inputStyle}
+                    placeholder={placeholder}
+                    value={newLoc[key]}
+                    onChange={e => setNewLoc(p => ({ ...p, [key]: e.target.value }))}
+                    required
+                  />
+                </div>
+              ))}
             </div>
             <div className="flex gap-2 justify-end">
               <button
@@ -185,9 +281,21 @@ function LocationsTab() {
         </div>
       ) : (
         <>
-          <LocationSection title="Active Locations" count={active.length} locations={active} saving={saving} onToggle={toggleActive} countStyle="certain" />
+          <SectionHeader title="Active Locations" count={active.length} countStyle="certain" />
+          <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+            {active.length === 0
+              ? <div className="p-4 text-sm text-center" style={{ color: 'var(--color-text-secondary)' }}>No active locations</div>
+              : active.map(loc => <LocationRow key={loc.location_id} loc={loc} />)
+            }
+          </div>
+
           {inactive.length > 0 && (
-            <LocationSection title="Inactive Locations" count={inactive.length} locations={inactive} saving={saving} onToggle={toggleActive} countStyle="muted" />
+            <>
+              <SectionHeader title="Inactive Locations" count={inactive.length} countStyle="muted" />
+              <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+                {inactive.map(loc => <LocationRow key={loc.location_id} loc={loc} />)}
+              </div>
+            </>
           )}
         </>
       )}
@@ -195,72 +303,20 @@ function LocationsTab() {
   )
 }
 
-function LocationSection({
-  title, count, locations, saving, onToggle, countStyle,
-}: {
-  title: string
-  count: number
-  locations: DVTLocation[]
-  saving: string | null
-  onToggle: (loc: DVTLocation) => void
-  countStyle: 'certain' | 'muted'
-}) {
+function SectionHeader({ title, count, countStyle }: { title: string; count: number; countStyle: 'certain' | 'muted' }) {
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-sm font-bold font-display" style={{ color: 'var(--color-text-primary)' }}>{title}</h2>
-        <span
-          className="text-xs px-1.5 py-0.5 rounded"
-          style={{
-            background: countStyle === 'certain' ? 'var(--conf-certain-bg)' : 'var(--color-input-bg)',
-            color: countStyle === 'certain' ? 'var(--conf-certain)' : 'var(--color-text-secondary)',
-            fontFamily: 'DM Mono, monospace',
-          }}
-        >
-          {count}
-        </span>
-      </div>
-      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
-        {count === 0
-          ? <div className="p-4 text-sm text-center" style={{ color: 'var(--color-text-secondary)' }}>No {title.toLowerCase()}</div>
-          : locations.map(loc => (
-            <div
-              key={loc.location_id}
-              className="flex items-center justify-between px-4 py-2.5"
-              style={{ borderBottom: '1px solid var(--color-border)', opacity: loc.is_active ? 1 : 0.55 }}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ background: loc.is_active ? '#4ADE80' : 'rgba(183,224,222,0.2)' }}
-                />
-                <div>
-                  <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'Chakra Petch, sans-serif' }}>
-                    {loc.name}
-                  </div>
-                  <div className="text-xs" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}>
-                    {loc.location_id} · Sheet: {loc.sheet_name}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => onToggle(loc)}
-                disabled={saving === loc.location_id}
-                className="text-xs px-3 py-1.5 rounded-md font-semibold transition-colors flex-shrink-0"
-                style={{
-                  background: loc.is_active ? 'rgba(220,38,38,0.1)' : 'var(--conf-certain-bg)',
-                  color: loc.is_active ? 'var(--color-danger)' : 'var(--conf-certain)',
-                  border: `1px solid ${loc.is_active ? 'rgba(220,38,38,0.3)' : 'var(--conf-certain)'}`,
-                  opacity: saving === loc.location_id ? 0.5 : 1,
-                  fontFamily: 'DM Mono, monospace',
-                }}
-              >
-                {saving === loc.location_id ? '…' : loc.is_active ? 'Deactivate' : 'Activate'}
-              </button>
-            </div>
-          ))
-        }
-      </div>
+    <div className="flex items-center gap-2 mb-2">
+      <h2 className="text-sm font-bold font-display" style={{ color: 'var(--color-text-primary)' }}>{title}</h2>
+      <span
+        className="text-xs px-1.5 py-0.5 rounded"
+        style={{
+          background: countStyle === 'certain' ? 'var(--conf-certain-bg)' : 'var(--color-input-bg)',
+          color: countStyle === 'certain' ? 'var(--conf-certain)' : 'var(--color-text-secondary)',
+          fontFamily: 'DM Mono, monospace',
+        }}
+      >
+        {count}
+      </span>
     </div>
   )
 }
@@ -320,16 +376,19 @@ function UsersTab() {
   }
 
   const selectStyle: React.CSSProperties = {
+    width: '100%',
     background: 'var(--color-input-bg)',
     border: '1px solid var(--color-border)',
     borderRadius: 6,
-    padding: '4px 8px',
+    padding: '4px 6px',
     color: 'var(--color-text-primary)',
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: 'DM Mono, monospace',
     outline: 'none',
     cursor: 'pointer',
   }
+
+  const colStyle: React.CSSProperties = { gridTemplateColumns: USER_COLS, gap: 16 }
 
   return (
     <div className="space-y-4">
@@ -340,17 +399,14 @@ function UsersTab() {
           Loading users…
         </div>
       ) : users.length === 0 ? (
-        <div className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          No users found
-        </div>
+        <div className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>No users found</div>
       ) : (
         <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
-          {/* Table header */}
+          {/* Header */}
           <div
-            className="grid px-4 py-2 text-xs font-semibold"
+            className="grid px-4 py-2 text-xs font-semibold items-center"
             style={{
-              gridTemplateColumns: '1fr auto auto auto',
-              gap: 16,
+              ...colStyle,
               color: 'rgba(183,224,222,0.4)',
               fontFamily: 'DM Mono, monospace',
               borderBottom: '1px solid var(--color-border)',
@@ -371,8 +427,7 @@ function UsersTab() {
                 key={user.id}
                 className="grid items-center px-4 py-3"
                 style={{
-                  gridTemplateColumns: '1fr auto auto auto',
-                  gap: 16,
+                  ...colStyle,
                   borderBottom: '1px solid var(--color-border)',
                   opacity: isSaving ? 0.6 : 1,
                 }}
@@ -389,13 +444,13 @@ function UsersTab() {
                   )}
                 </div>
 
-                {/* Ops role */}
-                <div className="flex-shrink-0">
+                {/* Ops role — fixed width column */}
+                <div>
                   <OpsRoleChip role={user.ops_role} />
                 </div>
 
-                {/* DVT Access toggle */}
-                <div className="flex-shrink-0 flex items-center justify-center">
+                {/* DVT Access toggle — fixed width column */}
+                <div className="flex items-center">
                   {isOpsAdmin ? (
                     <span className="text-xs" style={{ color: 'rgba(183,224,222,0.35)', fontFamily: 'DM Mono, monospace' }}>always on</span>
                   ) : (
@@ -414,7 +469,7 @@ function UsersTab() {
                       title={user.dvt_access ? 'Revoke DVT access' : 'Grant DVT access'}
                     >
                       <span
-                        className="absolute rounded-full transition-transform"
+                        className="absolute rounded-full transition-all"
                         style={{
                           width: 14,
                           height: 14,
@@ -427,8 +482,8 @@ function UsersTab() {
                   )}
                 </div>
 
-                {/* DVT Role */}
-                <div className="flex-shrink-0">
+                {/* DVT Role — fixed width column, always rendered */}
+                <div>
                   {isOpsAdmin ? (
                     <span className="text-xs" style={{ color: 'rgba(183,224,222,0.35)', fontFamily: 'DM Mono, monospace' }}>admin</span>
                   ) : user.dvt_access ? (
@@ -445,7 +500,7 @@ function UsersTab() {
                       ))}
                     </select>
                   ) : (
-                    <span className="text-xs" style={{ color: 'rgba(183,224,222,0.25)', fontFamily: 'DM Mono, monospace' }}>—</span>
+                    <span className="text-xs" style={{ color: 'rgba(183,224,222,0.2)', fontFamily: 'DM Mono, monospace' }}>—</span>
                   )}
                 </div>
               </div>
@@ -489,7 +544,6 @@ export function Admin() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-content-bg)' }}>
-      {/* Header */}
       <div
         className="flex items-center gap-4 px-6 py-3 border-b flex-shrink-0"
         style={{ background: 'var(--color-topbar-bg)', borderColor: 'rgba(183,224,222,0.15)' }}
