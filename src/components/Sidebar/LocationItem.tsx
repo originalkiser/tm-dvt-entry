@@ -56,7 +56,7 @@ export function LocationItem({ location, isActive, hasDataToday, onClick, dragHa
         <span
           className="w-2 h-2 rounded-full flex-shrink-0"
           style={{
-            background: isActive ? '#4ADE80' : hasDataToday ? '#4ADE80' : 'rgba(183,224,222,0.25)',
+            background: isActive ? '#4ADE80' : 'rgba(183,224,222,0.25)',
             boxShadow: isActive ? '0 0 6px 2px rgba(74,222,128,0.7)' : undefined,
           }}
           title={hasDataToday ? 'Has entry today' : 'No entry today'}
