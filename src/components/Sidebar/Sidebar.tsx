@@ -74,9 +74,10 @@ export function Sidebar() {
 
   return (
     <aside
-      className="flex flex-col flex-shrink-0 h-full overflow-hidden transition-all duration-200"
+      className="flex flex-col flex-shrink-0 h-full transition-all duration-200"
       style={{
         width: collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH,
+        overflow: collapsed ? 'visible' : 'hidden',
         background: 'var(--color-sidebar-bg)',
         borderRight: '1px solid rgba(183,224,222,0.15)',
       }}
