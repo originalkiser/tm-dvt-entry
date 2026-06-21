@@ -14,6 +14,8 @@ interface Props {
   hasDataToday: boolean
   onClick: () => void
   dragHandleProps?: DragHandleProps
+  pos?: string | null
+  lastUpdated?: string | null
 }
 
 function parseLocationName(name: string): { main: string; sub: string | null } {
@@ -21,8 +23,19 @@ function parseLocationName(name: string): { main: string; sub: string | null } {
   return m ? { main: m[1].trim(), sub: m[2].trim() } : { main: name, sub: null }
 }
 
-export function LocationItem({ location, isActive, hasDataToday, onClick, dragHandleProps }: Props) {
+function formatLastUpdated(isoString: string): string {
+  const date = new Date(isoString)
+  const now = new Date()
+  if (date.toDateString() === now.toDateString()) return 'Today'
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+export function LocationItem({ location, isActive, hasDataToday, onClick, dragHandleProps, pos, lastUpdated }: Props) {
   const { main, sub } = parseLocationName(location.name)
+  const lastUpdatedLabel = lastUpdated ? formatLastUpdated(lastUpdated) : null
 
   return (
     <div
@@ -61,7 +74,7 @@ export function LocationItem({ location, isActive, hasDataToday, onClick, dragHa
           }}
           title={hasDataToday ? 'Has entry today' : 'No entry today'}
         />
-        <span className="flex flex-col leading-snug">
+        <span className="flex flex-col leading-snug min-w-0">
           <span className="text-xs font-semibold whitespace-nowrap">{main}</span>
           {sub && (
             <span
@@ -75,6 +88,42 @@ export function LocationItem({ location, isActive, hasDataToday, onClick, dragHa
               }}
             >
               {sub}
+            </span>
+          )}
+          {/* POS pill + last updated row */}
+          {(pos || lastUpdatedLabel) && (
+            <span className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              {pos && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontFamily: 'DM Mono, monospace',
+                    fontWeight: 400,
+                    padding: '0px 5px',
+                    borderRadius: 99,
+                    border: '1px solid rgba(183,224,222,0.2)',
+                    color: isActive ? 'var(--sb-sky)' : 'rgba(183,224,222,0.5)',
+                    background: 'rgba(183,224,222,0.06)',
+                    letterSpacing: '0.02em',
+                    lineHeight: '16px',
+                  }}
+                >
+                  {pos}
+                </span>
+              )}
+              {lastUpdatedLabel && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontFamily: 'DM Mono, monospace',
+                    fontWeight: 400,
+                    opacity: 0.4,
+                    color: 'inherit',
+                  }}
+                >
+                  {lastUpdatedLabel}
+                </span>
+              )}
             </span>
           )}
         </span>

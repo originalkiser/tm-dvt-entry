@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
-  fetchLocations, updateLocationActive, updateLocationSheetName, updateLocationPos, addLocation, DVTLocation,
+  fetchLocations, updateLocationActive, updateLocationSheetName, updateLocationPos, updateLocationPosCode, addLocation, DVTLocation,
   fetchAllUsers, updateUserDvtAccess, UserWithAccess,
 } from '../lib/supabase'
 
@@ -10,7 +10,7 @@ type AdminTab = 'locations' | 'users'
 
 // Fixed column widths — must match between header and rows
 const USER_COLS = '1fr 90px 110px 160px'
-const LOC_COLS = '1fr 130px 180px 110px'
+const LOC_COLS = '1fr 120px 120px 180px 110px'
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -186,6 +186,85 @@ function PosCell({ value, knownValues, onSave, disabled }: PosCellProps) {
   )
 }
 
+// ── POS Location Code cell (simple inline edit, no dropdown) ──────────────
+
+interface PosCodeCellProps {
+  value: string | null | undefined
+  onSave: (code: string) => Promise<void>
+  disabled: boolean
+}
+
+function PosCodeCell({ value, onSave, disabled }: PosCodeCellProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+
+  const commit = async () => {
+    const trimmed = draft.trim()
+    if (trimmed === (value ?? '')) { setEditing(false); return }
+    setSaving(true)
+    try { await onSave(trimmed) } finally { setSaving(false); setEditing(false) }
+  }
+
+  const cellInputStyle: React.CSSProperties = {
+    background: 'var(--color-input-bg)',
+    border: '1px solid var(--sb-sky)',
+    borderRadius: 6,
+    padding: '4px 8px',
+    color: 'var(--color-text-primary)',
+    fontSize: 11,
+    fontFamily: 'DM Mono, monospace',
+    width: '100%',
+    outline: 'none',
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setDraft(value ?? ''); setEditing(true) }}
+        disabled={disabled}
+        className="text-xs group flex items-center gap-1 w-full transition-opacity hover:opacity-80 text-left"
+        style={{ color: value ? 'var(--color-text-primary)' : 'rgba(183,224,222,0.3)', fontFamily: 'DM Mono, monospace' }}
+        title="Edit POS Location Code"
+      >
+        <span className="truncate">{value || '—'}</span>
+        <span style={{ opacity: 0, fontSize: 10, flexShrink: 0 }} className="group-hover:opacity-50">✎</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+        disabled={saving}
+        style={cellInputStyle}
+      />
+      <button
+        onClick={commit}
+        disabled={saving}
+        className="text-xs px-1.5 py-1 rounded flex-shrink-0"
+        style={{ background: 'var(--conf-certain-bg)', color: 'var(--conf-certain)', border: '1px solid var(--conf-certain)' }}
+      >
+        {saving ? '…' : '✓'}
+      </button>
+      <button
+        onClick={() => setEditing(false)}
+        className="text-xs px-1.5 py-1 rounded flex-shrink-0"
+        style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
 // ── Inline sheet name cell ─────────────────────────────────────────────────
 
 interface SheetCellProps {
@@ -311,6 +390,13 @@ function LocationsTab() {
     ))
   }
 
+  const handleSavePosCode = async (locationId: string, value: string) => {
+    await updateLocationPosCode(locationId, value)
+    setLocations(prev => prev.map(l =>
+      l.location_id === locationId ? { ...l, pos_location_code: value || null } : l
+    ))
+  }
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newLoc.location_id || !newLoc.name || !newLoc.sheet_name) return
@@ -379,6 +465,15 @@ function LocationsTab() {
           />
         </div>
 
+        {/* POS Location Code */}
+        <div>
+          <PosCodeCell
+            value={loc.pos_location_code}
+            onSave={code => handleSavePosCode(loc.location_id, code)}
+            disabled={isSavingThis}
+          />
+        </div>
+
         {/* Sheet Name */}
         <div>
           <SheetCell
@@ -422,6 +517,7 @@ function LocationsTab() {
     >
       <span>LOCATION</span>
       <span>POS</span>
+      <span>POS CODE</span>
       <span>SHEET NAME</span>
       <span>STATUS</span>
     </div>

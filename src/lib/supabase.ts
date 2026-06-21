@@ -27,6 +27,7 @@ export interface DVTLocation {
   sheet_name: string
   is_active: boolean
   pos?: string | null
+  pos_location_code?: string | null
 }
 
 export interface ColumnView {
@@ -159,6 +160,34 @@ export async function updateLocationPos(locationId: string, pos: string): Promis
     .update({ pos })
     .eq('location_id', locationId)
   if (error) throw new Error(error.message)
+}
+
+export async function updateLocationPosCode(locationId: string, posLocationCode: string): Promise<void> {
+  const { error } = await supabase
+    .from('dvt_locations')
+    .update({ pos_location_code: posLocationCode || null })
+    .eq('location_id', locationId)
+  if (error) throw new Error(error.message)
+}
+
+export async function fetchLastUpdatedDates(locationIds: string[]): Promise<Record<string, string>> {
+  if (locationIds.length === 0) return {}
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 90)
+  const { data, error } = await supabase
+    .from('dvt_daily_entries')
+    .select('location_id, updated_at')
+    .in('location_id', locationIds)
+    .gte('entry_date', cutoff.toISOString().split('T')[0])
+    .order('updated_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  const result: Record<string, string> = {}
+  for (const row of (data ?? [])) {
+    if (!result[row.location_id] && row.updated_at) {
+      result[row.location_id] = row.updated_at as string
+    }
+  }
+  return result
 }
 
 export async function addLocation(params: {

@@ -176,7 +176,7 @@ export function Sidebar() {
                     <span
                       className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                       style={{
-                        background: isActive ? '#4ADE80' : state.locationsWithDataToday.has(loc.location_id) ? '#4ADE80' : 'rgba(183,224,222,0.25)',
+                        background: isActive ? '#4ADE80' : 'rgba(183,224,222,0.25)',
                         boxShadow: isActive ? '0 0 4px rgba(74,222,128,0.7)' : undefined,
                       }}
                     />
@@ -251,6 +251,8 @@ export function Sidebar() {
                     isActive={state.activeLocationId === loc.location_id}
                     hasDataToday={state.locationsWithDataToday.has(loc.location_id)}
                     editMode={editMode}
+                    pos={loc.pos}
+                    lastUpdated={state.lastUpdatedDates[loc.location_id] ?? null}
                     onClick={() => {
                       if (editMode) return
                       dispatch({ type: 'SET_LOCATION', locationId: loc.location_id })

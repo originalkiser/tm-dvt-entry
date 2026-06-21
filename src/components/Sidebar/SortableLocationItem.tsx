@@ -10,6 +10,8 @@ interface Props {
   hasDataToday: boolean
   onClick: () => void
   editMode: boolean
+  pos?: string | null
+  lastUpdated?: string | null
 }
 
 export function SortableLocationItem({ editMode, ...rest }: Props) {

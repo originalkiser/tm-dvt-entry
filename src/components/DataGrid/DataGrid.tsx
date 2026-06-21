@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent,
 } from '@dnd-kit/core'
@@ -62,6 +62,13 @@ export function DataGrid() {
     dispatch({ type: 'SET_COLUMN_ORDER', locationId: activeLocationId, section: activeSection, order: arrayMove(colOrder, oldIdx, newIdx) })
   }
 
+  const handleUpdateNote = useCallback((key: string, note: string) => {
+    setColumnMeta(prev => ({
+      ...prev,
+      [key]: { ...(prev[key] ?? {}), note: note.trim() || undefined },
+    }))
+  }, [])
+
   const applyView = (view: ColumnView) => {
     const validKeys = view.column_keys.filter(k => sectionCols.some(c => c.key === k))
     const missing = sectionCols.filter(c => !validKeys.includes(c.key)).map(c => c.key)
@@ -101,17 +108,48 @@ export function DataGrid() {
           </button>
         </div>
 
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {activeLocationId && (() => {
             const loc = state.locations.find(l => l.location_id === activeLocationId)
-            return loc ? (
-              <span
-                className="text-sm font-semibold font-display truncate"
-                style={{ color: 'var(--sb-sky)', letterSpacing: '0.03em', maxWidth: 300 }}
-              >
-                {loc.name}
-              </span>
-            ) : null
+            if (!loc) return null
+            return (
+              <>
+                <span
+                  className="text-sm font-semibold font-display truncate"
+                  style={{ color: 'var(--sb-sky)', letterSpacing: '0.03em', maxWidth: 260 }}
+                >
+                  {loc.name}
+                </span>
+                {loc.pos && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                    style={{
+                      background: 'rgba(183,224,222,0.1)',
+                      border: '1px solid rgba(183,224,222,0.25)',
+                      color: 'var(--sb-sky)',
+                      fontFamily: 'DM Mono, monospace',
+                      fontSize: 10,
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    POS: {loc.pos}
+                  </span>
+                )}
+                {loc.pos_location_code && (
+                  <span
+                    className="flex-shrink-0"
+                    style={{
+                      fontSize: 11,
+                      fontFamily: 'DM Mono, monospace',
+                      color: 'var(--color-text-secondary)',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    {loc.pos_location_code}
+                  </span>
+                )}
+              </>
+            )
           })()}
         </div>
 
@@ -184,7 +222,7 @@ export function DataGrid() {
             </div>
           ) : (
             <table style={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%' }}>
-              <GridHeader columns={orderedColumns} columnMeta={columnMeta} />
+              <GridHeader columns={orderedColumns} columnMeta={columnMeta} onUpdateNote={handleUpdateNote} />
               <tbody>
                 {dates.length === 0 ? (
                   <tr>

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer, useRef, useMemo } from 'react'
 import { COLUMNS, ColumnSection } from '../config/columns'
 import { LOCATIONS } from '../config/locations'
-import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation, fetchUserPreferences, saveUserPreferences } from '../lib/supabase'
+import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation, fetchUserPreferences, saveUserPreferences, fetchLastUpdatedDates } from '../lib/supabase'
 import { today, subtractDays } from '../lib/dateUtils'
 import { getColumnOrder, saveColumnOrder } from '../hooks/useColumnOrder'
 import { ParseResult } from '../lib/parseEngine'
@@ -72,6 +72,7 @@ interface AppState {
   hiddenLocationIds: Set<string>
   locationOrder: string[]
   viewRefreshTrigger: number
+  lastUpdatedDates: Record<string, string>
 }
 
 type Action =
@@ -98,6 +99,7 @@ type Action =
   | { type: 'SET_HIDDEN_LOCATIONS'; ids: Set<string> }
   | { type: 'SET_LOCATION_ORDER'; order: string[] }
   | { type: 'BUMP_VIEW_REFRESH' }
+  | { type: 'SET_LAST_UPDATED_DATES'; dates: Record<string, string> }
 
 function getInitialColumnOrders(locationId: string): Record<ColumnSection, string[]> {
   return {
@@ -229,6 +231,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'BUMP_VIEW_REFRESH':
       return { ...state, viewRefreshTrigger: state.viewRefreshTrigger + 1 }
 
+    case 'SET_LAST_UPDATED_DATES':
+      return { ...state, lastUpdatedDates: action.dates }
+
     default:
       return state
   }
@@ -265,6 +270,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     hiddenLocationIds: loadHiddenLocations(),
     locationOrder: loadLocationOrder(),
     viewRefreshTrigger: 0,
+    lastUpdatedDates: {},
   })
 
   useEffect(() => {
@@ -291,6 +297,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const preferred = savedId ? resolved.find(l => l.location_id === savedId && l.is_active) : null
         const toSelect = preferred ?? resolved.find(l => l.is_active)
         if (toSelect) dispatch({ type: 'SET_LOCATION', locationId: toSelect.location_id })
+        const activeIds = resolved.filter(l => l.is_active).map(l => l.location_id)
+        fetchLastUpdatedDates(activeIds)
+          .then(dates => dispatch({ type: 'SET_LAST_UPDATED_DATES', dates }))
+          .catch(console.error)
       })
       .catch(() => {
         clearTimeout(timer)
