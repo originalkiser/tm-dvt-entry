@@ -1,7 +1,6 @@
-import React, { useRef, useEffect, useCallback } from 'react'
+import React, { useRef } from 'react'
 import { ColumnDef } from '../../config/columns'
 import { useAppContext } from '../../context/AppContext'
-import { useDebounce } from '../../hooks/useDebounce'
 
 interface Props {
   locationId: string
@@ -36,11 +35,6 @@ export function GridCell({
   const { dispatch, savePendingEntry } = useAppContext()
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const debouncedSave = useDebounce(
-    useCallback(() => savePendingEntry(locationId, date), [savePendingEntry, locationId, date]),
-    800
-  )
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value
     const parsed = col.type !== 'text' ? (raw === '' ? '' : parseFloat(raw.replace(/[$,%]/g, ''))) : raw
@@ -52,7 +46,7 @@ export function GridCell({
       value: isNaN(parsed as number) ? raw : parsed,
       confidence: 'manual',
     })
-    debouncedSave()
+    savePendingEntry(locationId, date)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   DndContext,
@@ -32,8 +32,21 @@ export function Sidebar() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [editMode, setEditMode] = useState(false)
+  const [collapsedDropdownOpen, setCollapsedDropdownOpen] = useState(false)
+  const collapsedBadgeRef = useRef<HTMLDivElement>(null)
 
   const { isLoadingLocations } = state
+
+  useEffect(() => {
+    if (!collapsedDropdownOpen) return
+    function onClickOutside(e: MouseEvent) {
+      if (collapsedBadgeRef.current && !collapsedBadgeRef.current.contains(e.target as Node)) {
+        setCollapsedDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [collapsedDropdownOpen])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -99,21 +112,87 @@ export function Sidebar() {
       </div>
 
       {collapsed ? (
-        /* Collapsed: show active location number horizontal at top with green glow border */
-        <div className="flex flex-col items-center pt-3 overflow-hidden">
+        /* Collapsed: location number badge with dropdown picker */
+        <div ref={collapsedBadgeRef} className="flex flex-col items-center pt-3 overflow-visible" style={{ position: 'relative' }}>
           {activeNumber && (
-            <span
-              className="font-mono font-bold select-none px-2 py-1 rounded"
+            <button
+              onClick={() => setCollapsedDropdownOpen(o => !o)}
+              className="font-mono font-bold select-none px-2 py-1 rounded transition-opacity hover:opacity-80"
               style={{
                 color: '#4ADE80',
                 fontSize: 11,
                 letterSpacing: '0.08em',
                 border: '1px solid #4ADE80',
-                boxShadow: '0 0 8px rgba(74,222,128,0.4)',
+                boxShadow: collapsedDropdownOpen ? '0 0 12px rgba(74,222,128,0.6)' : '0 0 8px rgba(74,222,128,0.4)',
+                background: 'transparent',
+                cursor: 'pointer',
               }}
+              title="Switch location"
             >
               {activeNumber}
-            </span>
+            </button>
+          )}
+
+          {collapsedDropdownOpen && visibleLocations.length > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: COLLAPSED_WIDTH + 6,
+                zIndex: 200,
+                background: 'var(--color-card-bg)',
+                border: '1px solid rgba(183,224,222,0.25)',
+                borderRadius: 10,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                minWidth: 200,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                className="px-3 py-2 text-xs font-semibold"
+                style={{ color: 'rgba(183,224,222,0.4)', fontFamily: 'DM Mono, monospace', borderBottom: '1px solid rgba(183,224,222,0.1)' }}
+              >
+                LOCATIONS
+              </div>
+              {visibleLocations.map(loc => {
+                const isActive = state.activeLocationId === loc.location_id
+                return (
+                  <button
+                    key={loc.location_id}
+                    onClick={() => {
+                      dispatch({ type: 'SET_LOCATION', locationId: loc.location_id })
+                      if (location.pathname !== '/') navigate('/')
+                      setCollapsedDropdownOpen(false)
+                    }}
+                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-colors"
+                    style={{
+                      background: isActive ? 'rgba(183,224,222,0.1)' : 'transparent',
+                      borderLeft: isActive ? '2px solid var(--sb-sky)' : '2px solid transparent',
+                    }}
+                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(183,224,222,0.06)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isActive ? 'rgba(183,224,222,0.1)' : 'transparent' }}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{
+                        background: isActive ? '#4ADE80' : state.locationsWithDataToday.has(loc.location_id) ? '#4ADE80' : 'rgba(183,224,222,0.25)',
+                        boxShadow: isActive ? '0 0 4px rgba(74,222,128,0.7)' : undefined,
+                      }}
+                    />
+                    <span
+                      className="text-xs"
+                      style={{
+                        color: isActive ? 'var(--sb-sky)' : 'var(--color-sidebar-text-muted)',
+                        fontWeight: isActive ? 700 : 400,
+                        fontFamily: 'Chakra Petch, sans-serif',
+                      }}
+                    >
+                      {loc.name}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           )}
         </div>
       ) : (

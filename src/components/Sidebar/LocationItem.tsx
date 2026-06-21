@@ -71,6 +71,7 @@ export function LocationItem({ location, isActive, hasDataToday, onClick, dragHa
                 opacity: 0.55,
                 fontFamily: 'DM Mono, monospace',
                 color: 'inherit',
+                fontWeight: 400,
               }}
             >
               {sub}

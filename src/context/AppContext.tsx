@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer, useRef } from 'react'
+import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer, useRef, useMemo } from 'react'
 import { COLUMNS, ColumnSection } from '../config/columns'
 import { LOCATIONS } from '../config/locations'
 import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation, fetchUserPreferences, saveUserPreferences } from '../lib/supabase'
@@ -19,6 +19,14 @@ function loadHiddenLocations(): Set<string> {
 
 function saveHiddenLocations(ids: Set<string>) {
   localStorage.setItem('dvt_hidden_locations', JSON.stringify([...ids]))
+}
+
+function loadActiveLocation(): string {
+  return localStorage.getItem('dvt_active_location') ?? ''
+}
+
+function saveActiveLocation(id: string) {
+  localStorage.setItem('dvt_active_location', id)
 }
 
 function loadLocationOrder(): string[] {
@@ -111,6 +119,7 @@ function makeEmptyEntry(locationId: string, date: string): DailyEntry {
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_LOCATION':
+      saveActiveLocation(action.locationId)
       return { ...state, activeLocationId: action.locationId }
 
     case 'SET_SECTION':
@@ -229,7 +238,7 @@ interface AppContextValue {
   state: AppState
   dispatch: React.Dispatch<Action>
   loadEntries: (locationId: string) => Promise<void>
-  savePendingEntry: (locationId: string, date: string) => Promise<void>
+  savePendingEntry: (locationId: string, date: string) => void
   visibleLocations: DVTLocation[]
 }
 
@@ -237,7 +246,7 @@ const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer<Reducer<AppState, Action>>(reducer, {
-    activeLocationId: '',
+    activeLocationId: loadActiveLocation(),
     activeSection: 'eod',
     dateRange: { start: subtractDays(4), end: today() },
     theme: getInitialTheme(),
@@ -278,20 +287,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(timer)
         const resolved = locs.length > 0 ? locs : staticLocations()
         dispatch({ type: 'SET_LOCATIONS', locations: resolved })
-        const firstActive = resolved.find(l => l.is_active)
-        if (firstActive) dispatch({ type: 'SET_LOCATION', locationId: firstActive.location_id })
+        const savedId = loadActiveLocation()
+        const preferred = savedId ? resolved.find(l => l.location_id === savedId && l.is_active) : null
+        const toSelect = preferred ?? resolved.find(l => l.is_active)
+        if (toSelect) dispatch({ type: 'SET_LOCATION', locationId: toSelect.location_id })
       })
       .catch(() => {
         clearTimeout(timer)
-        // Supabase table may not exist yet — use static config
         const fallback = staticLocations()
         dispatch({ type: 'SET_LOCATIONS', locations: fallback })
-        if (fallback[0]) dispatch({ type: 'SET_LOCATION', locationId: fallback[0].location_id })
+        const savedId = loadActiveLocation()
+        const preferred = savedId ? fallback.find(l => l.location_id === savedId) : null
+        const toSelect = preferred ?? fallback[0]
+        if (toSelect) dispatch({ type: 'SET_LOCATION', locationId: toSelect.location_id })
       })
       .finally(() => dispatch({ type: 'SET_LOADING_LOCATIONS', loading: false }))
 
     return () => clearTimeout(timer)
   }, [])
+
+  // Always-current entries ref so savePendingEntry never uses a stale closure
+  const entriesRef = useRef(state.entries)
+  useEffect(() => { entriesRef.current = state.entries }, [state.entries])
+
+  // Per-key save timers — one debounce bucket per (locationId:date), regardless of how many cells fire
+  const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // Load preferences from Supabase on mount — server is source of truth,
   // localStorage is just a fast cache for the initial render.
@@ -345,20 +365,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.dateRange.start, state.dateRange.end])
 
-  const savePendingEntry = useCallback(async (locationId: string, date: string) => {
-    const entry = state.entries[locationId]?.[date]
-    if (!entry) return
-    dispatch({ type: 'SET_SAVE_STATUS', status: 'saving' })
-    try {
-      await upsertEntry(locationId, date, entry.data, entry.confidence)
-      dispatch({ type: 'REMOVE_PENDING', key: `${locationId}:${date}` })
-      dispatch({ type: 'SET_SAVE_STATUS', status: 'saved' })
-      setTimeout(() => dispatch({ type: 'SET_SAVE_STATUS', status: 'idle' }), 1500)
-    } catch (err) {
-      console.error('savePendingEntry error:', err)
-      dispatch({ type: 'SET_SAVE_STATUS', status: 'error' })
-    }
-  }, [state.entries])
+  // Debounced per-key save — all cells on the same row share one timer.
+  // Multiple cells editing the same row will coalesce into a single Supabase call.
+  const savePendingEntry = useCallback((locationId: string, date: string) => {
+    const key = `${locationId}:${date}`
+    const existing = saveTimers.current.get(key)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(async () => {
+      saveTimers.current.delete(key)
+      const entry = entriesRef.current[locationId]?.[date]
+      if (!entry) return
+      dispatch({ type: 'SET_SAVE_STATUS', status: 'saving' })
+      try {
+        await upsertEntry(locationId, date, entry.data, entry.confidence)
+        dispatch({ type: 'REMOVE_PENDING', key })
+        dispatch({ type: 'SET_SAVE_STATUS', status: 'saved' })
+        setTimeout(() => dispatch({ type: 'SET_SAVE_STATUS', status: 'idle' }), 1500)
+      } catch (err) {
+        console.error('savePendingEntry error:', err)
+        dispatch({ type: 'SET_SAVE_STATUS', status: 'error' })
+      }
+    }, 800)
+    saveTimers.current.set(key, timer)
+  }, [])
 
   useEffect(() => {
     loadEntries(state.activeLocationId)
