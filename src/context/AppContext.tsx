@@ -21,6 +21,18 @@ function saveHiddenLocations(ids: Set<string>) {
   localStorage.setItem('dvt_hidden_locations', JSON.stringify([...ids]))
 }
 
+function loadLocationOrder(): string[] {
+  try {
+    const raw = localStorage.getItem('dvt_location_order')
+    if (raw) return JSON.parse(raw) as string[]
+  } catch { /* ignore */ }
+  return []
+}
+
+function saveLocationOrder(order: string[]) {
+  localStorage.setItem('dvt_location_order', JSON.stringify(order))
+}
+
 // Build a DVTLocation list from the static config as a fallback
 function staticLocations(): DVTLocation[] {
   return LOCATIONS.map(l => ({
@@ -50,6 +62,7 @@ interface AppState {
   settingsPanelOpen: boolean
   locations: DVTLocation[]
   hiddenLocationIds: Set<string>
+  locationOrder: string[]
   viewRefreshTrigger: number
 }
 
@@ -75,6 +88,7 @@ type Action =
   | { type: 'SET_LOCATIONS'; locations: DVTLocation[] }
   | { type: 'TOGGLE_LOCATION_HIDDEN'; locationId: string }
   | { type: 'SET_HIDDEN_LOCATIONS'; ids: Set<string> }
+  | { type: 'SET_LOCATION_ORDER'; order: string[] }
   | { type: 'BUMP_VIEW_REFRESH' }
 
 function getInitialColumnOrders(locationId: string): Record<ColumnSection, string[]> {
@@ -199,6 +213,10 @@ function reducer(state: AppState, action: Action): AppState {
       saveHiddenLocations(action.ids)
       return { ...state, hiddenLocationIds: action.ids }
 
+    case 'SET_LOCATION_ORDER':
+      saveLocationOrder(action.order)
+      return { ...state, locationOrder: action.order }
+
     case 'BUMP_VIEW_REFRESH':
       return { ...state, viewRefreshTrigger: state.viewRefreshTrigger + 1 }
 
@@ -236,6 +254,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     settingsPanelOpen: false,
     locations: [],
     hiddenLocationIds: loadHiddenLocations(),
+    locationOrder: loadLocationOrder(),
     viewRefreshTrigger: 0,
   })
 
@@ -345,10 +364,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadEntries(state.activeLocationId)
   }, [state.activeLocationId, state.dateRange.start, state.dateRange.end])
 
-  // Active locations that this user hasn't hidden
-  const visibleLocations = state.locations.filter(
-    l => l.is_active && !state.hiddenLocationIds.has(l.location_id)
-  )
+  // Active locations that this user hasn't hidden, sorted by custom order
+  const visibleLocations = (() => {
+    const active = state.locations.filter(
+      l => l.is_active && !state.hiddenLocationIds.has(l.location_id)
+    )
+    if (state.locationOrder.length === 0) return active
+    const orderMap = new Map(state.locationOrder.map((id, i) => [id, i]))
+    return [...active].sort((a, b) => {
+      const ai = orderMap.has(a.location_id) ? (orderMap.get(a.location_id) as number) : Infinity
+      const bi = orderMap.has(b.location_id) ? (orderMap.get(b.location_id) as number) : Infinity
+      return ai - bi
+    })
+  })()
 
   return (
     <AppContext.Provider value={{ state, dispatch, loadEntries, savePendingEntry, visibleLocations }}>

@@ -35,14 +35,6 @@ export function SettingsPanel() {
         }}
       >
         ⚙
-        {hiddenCount > 0 && (
-          <span
-            className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{ background: 'var(--conf-uncertain)', color: '#fff', fontSize: 9 }}
-          >
-            {hiddenCount}
-          </span>
-        )}
       </button>
 
       {/* Dropdown panel */}

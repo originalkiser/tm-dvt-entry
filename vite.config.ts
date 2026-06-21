@@ -22,6 +22,14 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         cleanupOutdatedCaches: true,
+        // Don't serve stale JS/CSS from cache — always revalidate against network first
+        runtimeCaching: [
+          {
+            urlPattern: /\.(?:js|css)$/i,
+            handler: 'NetworkFirst',
+            options: { cacheName: 'assets', networkTimeoutSeconds: 5 },
+          },
+        ],
       },
     }),
   ],

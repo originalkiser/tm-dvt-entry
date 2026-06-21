@@ -93,14 +93,15 @@ create policy "dvt_prefs_own" on dvt_user_preferences
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
-drop policy if exists "dvt_anon_locations_read"  on dvt_locations;
+drop policy if exists "dvt_anon_locations_read"   on dvt_locations;
+drop policy if exists "dvt_auth_locations_read"   on dvt_locations;
+drop policy if exists "dvt_admin_locations_write" on dvt_locations;
 drop policy if exists "dvt_auth_entries_all"      on dvt_daily_entries;
 drop policy if exists "dvt_auth_configs_all"      on dvt_column_configs;
 drop policy if exists "dvt_auth_views_select"     on dvt_column_views;
 drop policy if exists "dvt_auth_views_insert"     on dvt_column_views;
 drop policy if exists "dvt_auth_views_update"     on dvt_column_views;
 drop policy if exists "dvt_auth_views_delete"     on dvt_column_views;
-drop policy if exists "dvt_admin_locations_write" on dvt_locations;
 
 -- Locations: authenticated can read; admin can write
 create policy "dvt_auth_locations_read"  on dvt_locations for select to authenticated using (true);
