@@ -1,11 +1,20 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 export function UpdatePrompt() {
-  const {
-    needRefresh: [needRefresh],
-    updateServiceWorker,
-  } = useRegisterSW()
+  const [needRefresh, setNeedRefresh] = useState(false)
+
+  const { updateServiceWorker } = useRegisterSW({
+    onNeedRefresh() {
+      setNeedRefresh(true)
+    },
+    onRegisteredSW(_url, registration) {
+      // Poll for updates every 30 minutes while the app is open
+      if (registration) {
+        setInterval(() => registration.update(), 30 * 60 * 1000)
+      }
+    },
+  })
 
   if (!needRefresh) return null
 

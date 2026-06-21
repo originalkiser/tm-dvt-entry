@@ -33,7 +33,7 @@ export default defineConfig({
       },
     }),
   ],
-  base: './',
+  base: '/tm-dvt-entry/',
   resolve: {
     alias: { '@': '/src' },
   },

@@ -83,7 +83,7 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter basename="/tm-dvt-entry">
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
