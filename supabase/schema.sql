@@ -40,6 +40,13 @@ create table if not exists dvt_column_views (
   created_at timestamptz default now()
 );
 
+-- Per-user preferences (hidden locations, future settings)
+create table if not exists dvt_user_preferences (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  hidden_location_ids text[] not null default '{}',
+  updated_at timestamptz default now()
+);
+
 -- Column order/visibility config per location (localStorage fallback lives here too)
 create table if not exists dvt_column_configs (
   id uuid primary key default gen_random_uuid(),
@@ -71,6 +78,7 @@ create trigger dvt_entries_updated_at
   for each row execute function update_updated_at();
 
 -- Row Level Security
+alter table dvt_user_preferences enable row level security;
 alter table dvt_locations     enable row level security;
 alter table dvt_daily_entries enable row level security;
 alter table dvt_column_configs enable row level security;
@@ -78,6 +86,13 @@ alter table dvt_column_views   enable row level security;
 
 -- Anon: read locations + entries (data entry doesn't require login in the UI flow
 -- but Supabase Auth tokens are sent once logged in — authenticated role used for writes)
+-- User preferences: each user owns their own row
+drop policy if exists "dvt_prefs_own" on dvt_user_preferences;
+create policy "dvt_prefs_own" on dvt_user_preferences
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
 drop policy if exists "dvt_anon_locations_read"  on dvt_locations;
 drop policy if exists "dvt_auth_entries_all"      on dvt_daily_entries;
 drop policy if exists "dvt_auth_configs_all"      on dvt_column_configs;

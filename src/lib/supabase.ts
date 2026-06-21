@@ -127,6 +127,33 @@ export async function purgeOldEntries(): Promise<void> {
   if (error) console.error('purgeOldEntries (non-fatal):', error)
 }
 
+// ── User Preferences ─────────────────────────────────────────────────────
+
+export interface UserPreferences {
+  hidden_location_ids: string[]
+}
+
+export async function fetchUserPreferences(): Promise<UserPreferences | null> {
+  const { data, error } = await supabase
+    .from('dvt_user_preferences')
+    .select('hidden_location_ids')
+    .maybeSingle()
+  if (error) throw error
+  return data ?? null
+}
+
+export async function saveUserPreferences(prefs: UserPreferences): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  const { error } = await supabase
+    .from('dvt_user_preferences')
+    .upsert(
+      { user_id: user.id, hidden_location_ids: prefs.hidden_location_ids, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+  if (error) throw error
+}
+
 // ── Column Views ─────────────────────────────────────────────────────────
 
 export async function fetchColumnViews(): Promise<ColumnView[]> {

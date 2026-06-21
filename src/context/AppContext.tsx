@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer } from 'react'
+import React, { createContext, useContext, useReducer, useEffect, useCallback, Reducer, useRef } from 'react'
 import { COLUMNS, ColumnSection } from '../config/columns'
 import { LOCATIONS } from '../config/locations'
-import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation } from '../lib/supabase'
+import { DailyEntry, fetchEntries, upsertEntry, fetchTodayStatus, fetchLocations, DVTLocation, fetchUserPreferences, saveUserPreferences } from '../lib/supabase'
 import { today, subtractDays } from '../lib/dateUtils'
 import { getColumnOrder, saveColumnOrder } from '../hooks/useColumnOrder'
 import { ParseResult } from '../lib/parseEngine'
@@ -74,6 +74,7 @@ type Action =
   | { type: 'TOGGLE_SETTINGS_PANEL' }
   | { type: 'SET_LOCATIONS'; locations: DVTLocation[] }
   | { type: 'TOGGLE_LOCATION_HIDDEN'; locationId: string }
+  | { type: 'SET_HIDDEN_LOCATIONS'; ids: Set<string> }
   | { type: 'BUMP_VIEW_REFRESH' }
 
 function getInitialColumnOrders(locationId: string): Record<ColumnSection, string[]> {
@@ -189,9 +190,14 @@ function reducer(state: AppState, action: Action): AppState {
       const next = new Set(state.hiddenLocationIds)
       if (next.has(action.locationId)) next.delete(action.locationId)
       else next.add(action.locationId)
-      saveHiddenLocations(next)
+      saveHiddenLocations(next) // immediate localStorage write
       return { ...state, hiddenLocationIds: next }
     }
+
+    case 'SET_HIDDEN_LOCATIONS':
+      // Server-loaded preferences — update state + localStorage, don't re-trigger save
+      saveHiddenLocations(action.ids)
+      return { ...state, hiddenLocationIds: action.ids }
 
     case 'BUMP_VIEW_REFRESH':
       return { ...state, viewRefreshTrigger: state.viewRefreshTrigger + 1 }
@@ -267,6 +273,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => clearTimeout(timer)
   }, [])
+
+  // Load preferences from Supabase on mount — server is source of truth,
+  // localStorage is just a fast cache for the initial render.
+  // We track the last server value so we don't write back what we just read.
+  const serverHiddenRef = useRef<string | null>(null) // JSON string for cheap comparison
+
+  useEffect(() => {
+    fetchUserPreferences()
+      .then(prefs => {
+        if (!prefs) return
+        const ids = new Set(prefs.hidden_location_ids)
+        serverHiddenRef.current = JSON.stringify([...ids].sort())
+        dispatch({ type: 'SET_HIDDEN_LOCATIONS', ids })
+      })
+      .catch(console.error)
+  }, [])
+
+  // Debounced save to Supabase whenever hidden locations change.
+  // Guard: skip if the value matches what we just loaded from server.
+  useEffect(() => {
+    const currentJson = JSON.stringify([...state.hiddenLocationIds].sort())
+    if (serverHiddenRef.current === null) return // not yet initialized from server
+    if (currentJson === serverHiddenRef.current) return // no user change, skip write
+
+    const timer = setTimeout(() => {
+      saveUserPreferences({ hidden_location_ids: [...state.hiddenLocationIds] })
+        .then(() => { serverHiddenRef.current = currentJson })
+        .catch(console.error)
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [state.hiddenLocationIds])
 
   useEffect(() => {
     const activeIds = state.locations.filter(l => l.is_active).map(l => l.location_id)
