@@ -3,8 +3,6 @@ import { useAppContext } from '../../context/AppContext'
 import { DateRangePicker } from './DateRangePicker'
 import { ThemeToggle } from './ThemeToggle'
 import { ExportButton } from './ExportButton'
-import { SettingsPanel } from './SettingsPanel'
-
 export function TopBar() {
   const { state, dispatch } = useAppContext()
 
@@ -68,7 +66,6 @@ export function TopBar() {
             Retry
           </button>
         )}
-        <SettingsPanel />
         <ThemeToggle />
         <ExportButton />
       </div>

@@ -94,7 +94,19 @@ export function DataGrid() {
           </button>
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {activeLocationId && (() => {
+            const loc = state.locations.find(l => l.location_id === activeLocationId)
+            return loc ? (
+              <span
+                className="text-sm font-semibold font-display truncate"
+                style={{ color: 'var(--sb-sky)', letterSpacing: '0.03em', maxWidth: 300 }}
+              >
+                {loc.name}
+              </span>
+            ) : null
+          })()}
+        </div>
 
         {/* View controls */}
         <div className="flex items-center gap-2">

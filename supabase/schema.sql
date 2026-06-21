@@ -15,6 +15,8 @@ create table if not exists dvt_locations (
 
 -- Ensure is_active exists (safe to run even if column already present)
 alter table dvt_locations add column if not exists is_active boolean not null default true;
+-- POS system name per location (e.g. REVEL, SHIFT4)
+alter table dvt_locations add column if not exists pos text;
 
 -- Daily entry rows
 create table if not exists dvt_daily_entries (

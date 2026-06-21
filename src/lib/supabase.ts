@@ -23,6 +23,7 @@ export interface DVTLocation {
   name: string
   sheet_name: string
   is_active: boolean
+  pos?: string | null
 }
 
 export interface ColumnView {
@@ -143,6 +144,14 @@ export async function updateLocationSheetName(locationId: string, sheetName: str
   const { error } = await supabase
     .from('dvt_locations')
     .update({ sheet_name: sheetName })
+    .eq('location_id', locationId)
+  if (error) throw new Error(error.message)
+}
+
+export async function updateLocationPos(locationId: string, pos: string): Promise<void> {
+  const { error } = await supabase
+    .from('dvt_locations')
+    .update({ pos })
     .eq('location_id', locationId)
   if (error) throw new Error(error.message)
 }

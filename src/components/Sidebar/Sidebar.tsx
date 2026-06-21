@@ -99,18 +99,17 @@ export function Sidebar() {
       </div>
 
       {collapsed ? (
-        /* Collapsed: show active location number rotated */
-        <div className="flex-1 flex flex-col items-center justify-center py-4 overflow-hidden">
+        /* Collapsed: show active location number horizontal at top with green glow border */
+        <div className="flex flex-col items-center pt-3 overflow-hidden">
           {activeNumber && (
             <span
-              className="font-mono font-bold select-none"
+              className="font-mono font-bold select-none px-2 py-1 rounded"
               style={{
-                color: 'var(--sb-sky)',
+                color: '#4ADE80',
                 fontSize: 11,
-                letterSpacing: '0.12em',
-                writingMode: 'vertical-rl',
-                transform: 'rotate(180deg)',
-                opacity: 0.85,
+                letterSpacing: '0.08em',
+                border: '1px solid #4ADE80',
+                boxShadow: '0 0 8px rgba(74,222,128,0.4)',
               }}
             >
               {activeNumber}

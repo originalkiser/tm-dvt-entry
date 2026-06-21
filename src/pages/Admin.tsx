@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
-  fetchLocations, updateLocationActive, updateLocationSheetName, addLocation, DVTLocation,
+  fetchLocations, updateLocationActive, updateLocationSheetName, updateLocationPos, addLocation, DVTLocation,
   fetchAllUsers, updateUserDvtAccess, UserWithAccess,
 } from '../lib/supabase'
 
@@ -10,6 +10,7 @@ type AdminTab = 'locations' | 'users'
 
 // Fixed column widths — must match between header and rows
 const USER_COLS = '1fr 90px 110px 160px'
+const LOC_COLS = '1fr 130px 180px 110px'
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -40,12 +41,231 @@ function OpsRoleChip({ role }: { role: string }) {
   )
 }
 
-// ── Locations tab ─────────────────────────────────────────────────────────
+// ── POS dropdown cell ──────────────────────────────────────────────────────
 
-interface EditingSheet {
-  locationId: string
-  value: string
+interface PosCellProps {
+  value: string | null | undefined
+  knownValues: string[]
+  onSave: (pos: string) => Promise<void>
+  disabled: boolean
 }
+
+function PosCell({ value, knownValues, onSave, disabled }: PosCellProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  useEffect(() => {
+    if (!showDropdown) return
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [showDropdown])
+
+  const commit = async () => {
+    const trimmed = draft.trim()
+    if (trimmed === (value ?? '')) { setEditing(false); setShowDropdown(false); return }
+    setSaving(true)
+    try {
+      await onSave(trimmed)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+      setShowDropdown(false)
+    }
+  }
+
+  const suggestions = knownValues.filter(v => v && v !== (value ?? '') && v.toLowerCase().includes(draft.toLowerCase()))
+
+  const cellInputStyle: React.CSSProperties = {
+    background: 'var(--color-input-bg)',
+    border: '1px solid var(--sb-sky)',
+    borderRadius: 6,
+    padding: '4px 8px',
+    color: 'var(--color-text-primary)',
+    fontSize: 11,
+    fontFamily: 'DM Mono, monospace',
+    width: '100%',
+    outline: 'none',
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setDraft(value ?? ''); setEditing(true); setShowDropdown(true) }}
+        disabled={disabled}
+        className="text-xs group flex items-center gap-1 w-full transition-opacity hover:opacity-80 text-left"
+        style={{ color: value ? 'var(--color-text-primary)' : 'rgba(183,224,222,0.3)', fontFamily: 'DM Mono, monospace' }}
+        title="Edit POS"
+      >
+        <span>{value || '—'}</span>
+        <span style={{ opacity: 0, fontSize: 10, flexShrink: 0 }} className="group-hover:opacity-50">✎</span>
+      </button>
+    )
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <div className="flex items-center gap-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={e => { setDraft(e.target.value); setShowDropdown(true) }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit()
+            if (e.key === 'Escape') { setEditing(false); setShowDropdown(false) }
+          }}
+          onFocus={() => setShowDropdown(true)}
+          disabled={saving}
+          style={cellInputStyle}
+        />
+        <button
+          onClick={commit}
+          disabled={saving}
+          className="text-xs px-1.5 py-1 rounded flex-shrink-0"
+          style={{ background: 'var(--conf-certain-bg)', color: 'var(--conf-certain)', border: '1px solid var(--conf-certain)' }}
+        >
+          {saving ? '…' : '✓'}
+        </button>
+        <button
+          onClick={() => { setEditing(false); setShowDropdown(false) }}
+          className="text-xs px-1.5 py-1 rounded flex-shrink-0"
+          style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {showDropdown && suggestions.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            marginTop: 4,
+            background: 'var(--color-card-bg)',
+            border: '1px solid var(--sb-sky)',
+            borderRadius: 8,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            overflow: 'hidden',
+          }}
+        >
+          {suggestions.map(s => (
+            <button
+              key={s}
+              onMouseDown={e => { e.preventDefault(); setDraft(s); setShowDropdown(false); }}
+              className="w-full text-left px-3 py-2 text-xs transition-colors"
+              style={{
+                fontFamily: 'DM Mono, monospace',
+                color: 'var(--sb-sky)',
+                background: 'transparent',
+                borderBottom: '1px solid rgba(183,224,222,0.08)',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(183,224,222,0.1)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Inline sheet name cell ─────────────────────────────────────────────────
+
+interface SheetCellProps {
+  value: string
+  onSave: (v: string) => Promise<void>
+  disabled: boolean
+}
+
+function SheetCell({ value, onSave, disabled }: SheetCellProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+
+  const commit = async () => {
+    const trimmed = draft.trim()
+    if (!trimmed || trimmed === value) { setEditing(false); return }
+    setSaving(true)
+    try { await onSave(trimmed) } finally { setSaving(false); setEditing(false) }
+  }
+
+  const cellInputStyle: React.CSSProperties = {
+    background: 'var(--color-input-bg)',
+    border: '1px solid var(--sb-sky)',
+    borderRadius: 6,
+    padding: '4px 8px',
+    color: 'var(--color-text-primary)',
+    fontSize: 11,
+    fontFamily: 'DM Mono, monospace',
+    width: '100%',
+    outline: 'none',
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setDraft(value); setEditing(true) }}
+        disabled={disabled}
+        className="text-xs group flex items-center gap-1 w-full transition-opacity hover:opacity-80 text-left"
+        style={{ color: 'var(--color-text-primary)', fontFamily: 'DM Mono, monospace' }}
+        title="Edit sheet name"
+      >
+        <span className="truncate">{value}</span>
+        <span style={{ opacity: 0, fontSize: 10, flexShrink: 0 }} className="group-hover:opacity-50">✎</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+        disabled={saving}
+        style={cellInputStyle}
+      />
+      <button
+        onClick={commit}
+        disabled={saving}
+        className="text-xs px-1.5 py-1 rounded flex-shrink-0"
+        style={{ background: 'var(--conf-certain-bg)', color: 'var(--conf-certain)', border: '1px solid var(--conf-certain)' }}
+      >
+        {saving ? '…' : '✓'}
+      </button>
+      <button
+        onClick={() => setEditing(false)}
+        className="text-xs px-1.5 py-1 rounded flex-shrink-0"
+        style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
+// ── Locations tab ─────────────────────────────────────────────────────────
 
 function LocationsTab() {
   const [locations, setLocations] = useState<DVTLocation[]>([])
@@ -55,8 +275,6 @@ function LocationsTab() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [newLoc, setNewLoc] = useState({ location_id: '', name: '', sheet_name: '' })
   const [adding, setAdding] = useState(false)
-  const [editingSheet, setEditingSheet] = useState<EditingSheet | null>(null)
-  const sheetInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchLocations()
@@ -64,10 +282,6 @@ function LocationsTab() {
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setIsLoading(false))
   }, [])
-
-  useEffect(() => {
-    if (editingSheet) sheetInputRef.current?.focus()
-  }, [editingSheet])
 
   const toggleActive = async (loc: DVTLocation) => {
     setSaving(loc.location_id)
@@ -83,23 +297,18 @@ function LocationsTab() {
     }
   }
 
-  const saveSheetName = async () => {
-    if (!editingSheet) return
-    const trimmed = editingSheet.value.trim()
-    const loc = locations.find(l => l.location_id === editingSheet.locationId)
-    if (!trimmed || trimmed === loc?.sheet_name) { setEditingSheet(null); return }
-    setSaving(editingSheet.locationId)
-    try {
-      await updateLocationSheetName(editingSheet.locationId, trimmed)
-      setLocations(prev => prev.map(l =>
-        l.location_id === editingSheet.locationId ? { ...l, sheet_name: trimmed } : l
-      ))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(null)
-      setEditingSheet(null)
-    }
+  const handleSaveSheet = async (locationId: string, value: string) => {
+    await updateLocationSheetName(locationId, value)
+    setLocations(prev => prev.map(l =>
+      l.location_id === locationId ? { ...l, sheet_name: value } : l
+    ))
+  }
+
+  const handleSavePos = async (locationId: string, value: string) => {
+    await updateLocationPos(locationId, value)
+    setLocations(prev => prev.map(l =>
+      l.location_id === locationId ? { ...l, pos: value || null } : l
+    ))
   }
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -121,6 +330,7 @@ function LocationsTab() {
 
   const active = locations.filter(l => l.is_active)
   const inactive = locations.filter(l => !l.is_active)
+  const knownPosValues = [...new Set(locations.map(l => l.pos).filter(Boolean))] as string[]
 
   const inputStyle: React.CSSProperties = {
     background: 'var(--color-input-bg)',
@@ -134,86 +344,88 @@ function LocationsTab() {
     outline: 'none',
   }
 
+  const colStyle: React.CSSProperties = { gridTemplateColumns: LOC_COLS, gap: 12 }
+
   const LocationRow = ({ loc }: { loc: DVTLocation }) => {
     const isSavingThis = saving === loc.location_id
-    const isEditingSheet = editingSheet?.locationId === loc.location_id
-
     return (
       <div
-        className="flex items-center justify-between px-4 py-2.5"
-        style={{ borderBottom: '1px solid var(--color-border)', opacity: (loc.is_active ? 1 : 0.55) }}
+        className="grid items-center px-4 py-3"
+        style={{ ...colStyle, borderBottom: '1px solid var(--color-border)', opacity: loc.is_active ? 1 : 0.55 }}
       >
-        <div className="flex items-center gap-3 flex-1 min-w-0 mr-4">
+        {/* Location name + ID */}
+        <div className="flex items-center gap-2 min-w-0">
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
             style={{ background: loc.is_active ? '#4ADE80' : 'rgba(183,224,222,0.2)' }}
           />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'Chakra Petch, sans-serif' }}>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)', fontFamily: 'Chakra Petch, sans-serif' }}>
               {loc.name}
             </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace', flexShrink: 0 }}>
-                {loc.location_id} · Sheet:
-              </span>
-              {isEditingSheet ? (
-                <div className="flex items-center gap-1.5 flex-1">
-                  <input
-                    ref={sheetInputRef}
-                    value={editingSheet.value}
-                    onChange={e => setEditingSheet(s => s ? { ...s, value: e.target.value } : null)}
-                    onKeyDown={e => { if (e.key === 'Enter') saveSheetName(); if (e.key === 'Escape') setEditingSheet(null) }}
-                    className="flex-1 min-w-0"
-                    style={{ ...inputStyle, padding: '2px 6px', fontSize: 11 }}
-                  />
-                  <button
-                    onClick={saveSheetName}
-                    disabled={isSavingThis}
-                    className="text-xs px-2 py-0.5 rounded"
-                    style={{ background: 'var(--conf-certain-bg)', color: 'var(--conf-certain)', border: '1px solid var(--conf-certain)', flexShrink: 0 }}
-                  >
-                    {isSavingThis ? '…' : 'Save'}
-                  </button>
-                  <button
-                    onClick={() => setEditingSheet(null)}
-                    className="text-xs px-2 py-0.5 rounded"
-                    style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', flexShrink: 0 }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setEditingSheet({ locationId: loc.location_id, value: loc.sheet_name })}
-                  className="text-xs group flex items-center gap-1 transition-opacity hover:opacity-80"
-                  style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}
-                  title="Edit sheet name"
-                >
-                  <span>{loc.sheet_name}</span>
-                  <span style={{ opacity: 0, fontSize: 10 }} className="group-hover:opacity-60">✎</span>
-                </button>
-              )}
+            <div className="text-xs" style={{ color: 'var(--color-text-secondary)', fontFamily: 'DM Mono, monospace' }}>
+              {loc.location_id}
             </div>
           </div>
         </div>
 
-        <button
-          onClick={() => toggleActive(loc)}
-          disabled={isSavingThis}
-          className="text-xs px-3 py-1.5 rounded-md font-semibold transition-colors flex-shrink-0"
-          style={{
-            background: loc.is_active ? 'rgba(220,38,38,0.1)' : 'var(--conf-certain-bg)',
-            color: loc.is_active ? 'var(--color-danger)' : 'var(--conf-certain)',
-            border: `1px solid ${loc.is_active ? 'rgba(220,38,38,0.3)' : 'var(--conf-certain)'}`,
-            opacity: isSavingThis ? 0.5 : 1,
-            fontFamily: 'DM Mono, monospace',
-          }}
-        >
-          {isSavingThis ? '…' : loc.is_active ? 'Deactivate' : 'Activate'}
-        </button>
+        {/* POS */}
+        <div>
+          <PosCell
+            value={loc.pos}
+            knownValues={knownPosValues}
+            onSave={pos => handleSavePos(loc.location_id, pos)}
+            disabled={isSavingThis}
+          />
+        </div>
+
+        {/* Sheet Name */}
+        <div>
+          <SheetCell
+            value={loc.sheet_name}
+            onSave={v => handleSaveSheet(loc.location_id, v)}
+            disabled={isSavingThis}
+          />
+        </div>
+
+        {/* Status toggle */}
+        <div>
+          <button
+            onClick={() => toggleActive(loc)}
+            disabled={isSavingThis}
+            className="text-xs px-3 py-1.5 rounded-md font-semibold transition-colors w-full"
+            style={{
+              background: loc.is_active ? 'rgba(220,38,38,0.1)' : 'var(--conf-certain-bg)',
+              color: loc.is_active ? 'var(--color-danger)' : 'var(--conf-certain)',
+              border: `1px solid ${loc.is_active ? 'rgba(220,38,38,0.3)' : 'var(--conf-certain)'}`,
+              opacity: isSavingThis ? 0.5 : 1,
+              fontFamily: 'DM Mono, monospace',
+            }}
+          >
+            {isSavingThis ? '…' : loc.is_active ? 'Deactivate' : 'Activate'}
+          </button>
+        </div>
       </div>
     )
   }
+
+  const TableHeader = () => (
+    <div
+      className="grid px-4 py-2 text-xs font-semibold items-center"
+      style={{
+        ...colStyle,
+        color: 'rgba(183,224,222,0.4)',
+        fontFamily: 'DM Mono, monospace',
+        borderBottom: '1px solid var(--color-border)',
+        background: 'var(--color-topbar-bg)',
+      }}
+    >
+      <span>LOCATION</span>
+      <span>POS</span>
+      <span>SHEET NAME</span>
+      <span>STATUS</span>
+    </div>
+  )
 
   return (
     <div className="space-y-5">
@@ -283,6 +495,7 @@ function LocationsTab() {
         <>
           <SectionHeader title="Active Locations" count={active.length} countStyle="certain" />
           <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+            <TableHeader />
             {active.length === 0
               ? <div className="p-4 text-sm text-center" style={{ color: 'var(--color-text-secondary)' }}>No active locations</div>
               : active.map(loc => <LocationRow key={loc.location_id} loc={loc} />)
@@ -293,6 +506,7 @@ function LocationsTab() {
             <>
               <SectionHeader title="Inactive Locations" count={inactive.length} countStyle="muted" />
               <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-card-bg)', border: '1px solid var(--color-border)' }}>
+                <TableHeader />
                 {inactive.map(loc => <LocationRow key={loc.location_id} loc={loc} />)}
               </div>
             </>
